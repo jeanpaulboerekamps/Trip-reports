@@ -140,7 +140,7 @@ def make_trip_pdf(frame, meta, novelty):
             box_w = (page_w - 2 * margin - 10) / 3
             for i, (value, label) in enumerate(values):
                 col, row_idx = i % 3, i // 3
-                x, y = margin + col * (box_w + 5), page_h - 122 - row_idx * 48
+                x, y = margin + col * (box_w + 5), page_h - 142 - row_idx * 48
                 c.setFillColor(PALE)
                 c.roundRect(x, y, box_w, 43, 6, fill=1, stroke=0)
                 c.setFillColor(INK)

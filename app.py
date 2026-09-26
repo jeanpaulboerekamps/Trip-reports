@@ -55,36 +55,50 @@ with st.container(border=True):
     with to_col:
         end = st.date_input("Tot en met", value=date.today() - timedelta(days=1), max_value=date.today())
 
-    st.markdown("**Land of streek toevoegen**")
+    st.markdown("**Land of streek kiezen**")
     with st.form("place_search", clear_on_submit=False):
         pc, bc = st.columns([4, 1])
         with pc:
             query = st.text_input("Zoek een iNaturalist-plaats", placeholder="Bijvoorbeeld: Nederland, Gelderland of Noord-Holland", label_visibility="collapsed")
         with bc:
             search = st.form_submit_button("Zoeken", use_container_width=True)
+        combine_place = st.checkbox("Samenvoegen met huidig gebied", value=False)
     if search:
         try:
             found = search_places(query)
             exact = exact_place_match(query, found)
             if exact:
-                if exact["id"] not in [p["id"] for p in st.session_state.places]:
-                    st.session_state.places.append(exact)
+                if combine_place:
+                    if exact["id"] not in [p["id"] for p in st.session_state.places]:
+                        st.session_state.places.append(exact)
+                else:
+                    st.session_state.places = [exact]
+                    st.session_state.geometry = None
+                    st.session_state.area_name = ""
                 st.session_state.place_results = []
-                st.success(f"{exact['name']} is toegevoegd als actief gebied.")
+                st.success(f"{exact['name']} is nu het actieve gebied." if not combine_place else
+                           f"{exact['name']} is aan het actieve gebied toegevoegd.")
             else:
                 st.session_state.place_results = found
+                st.session_state.place_combine = combine_place
                 if not found:
                     st.warning("Geen iNaturalist-plaats gevonden. Probeer een andere naam.")
         except Exception as exc:
             st.error(str(exc))
     if st.session_state.place_results:
-        st.warning("De zoektekst is nog geen gebiedsfilter. Kies hieronder een resultaat en klik op ‘Plaats toevoegen’.")
+        action = "Plaats toevoegen" if st.session_state.get("place_combine") else "Gebied vervangen"
+        st.warning(f"De zoektekst is nog geen gebiedsfilter. Kies hieronder een resultaat en klik op ‘{action}’.")
         choices = {f"{p['name']} · {p['id']}": p for p in st.session_state.place_results}
         pick = st.selectbox("Kies een plaats", ["— Selecteer —", *choices], key="place_pick")
-        if st.button("Plaats toevoegen", type="primary", disabled=pick not in choices):
+        if st.button(action, type="primary", disabled=pick not in choices):
             p = choices[pick]
-            if p["id"] not in [x["id"] for x in st.session_state.places]:
-                st.session_state.places.append(p)
+            if st.session_state.get("place_combine"):
+                if p["id"] not in [x["id"] for x in st.session_state.places]:
+                    st.session_state.places.append(p)
+            else:
+                st.session_state.places = [p]
+                st.session_state.geometry = None
+                st.session_state.area_name = ""
             st.session_state.place_results = []
             st.rerun()
     if st.session_state.places:
@@ -93,12 +107,13 @@ with st.container(border=True):
         if remove != "— Geen —" and st.button("Verwijder plaats"):
             st.session_state.places = [p for p in st.session_state.places if p["name"] != remove]
             st.rerun()
-    st.caption("Meerdere plaatsen en een getekend gebied vormen samen één gebied (vereniging).")
+    st.caption("Een nieuwe plaats vervangt standaard het vorige gebied. Kies ‘Samenvoegen’ voor meerdere plaatsen.")
 
     if st.button("🗺️ Gebied tekenen" if not st.session_state.show_map else "Kaart sluiten"):
         st.session_state.show_map = not st.session_state.show_map
     if st.session_state.show_map:
         name = st.text_input("Naam voor getekend gebied", value=st.session_state.area_name or "Mijn reisgebied")
+        combine_drawing = st.checkbox("Tekening samenvoegen met geselecteerde plaatsen", value=False)
         m = folium.Map(location=[20, 5], zoom_start=2, tiles="OpenStreetMap", control_scale=True)
         Draw(export=False, draw_options={"polyline":False,"circle":False,"circlemarker":False,"marker":False,
                                          "polygon":{"allowIntersection":False},"rectangle":True},
@@ -108,6 +123,8 @@ with st.container(border=True):
         if st.button("Getekend gebied gebruiken", disabled=not drawings):
             geometry = normalize_geometry(drawings[-1].get("geometry"))
             if geometry:
+                if not combine_drawing:
+                    st.session_state.places = []
                 st.session_state.geometry = geometry
                 st.session_state.area_name = name.strip() or "Mijn reisgebied"
                 st.session_state.show_map = False
