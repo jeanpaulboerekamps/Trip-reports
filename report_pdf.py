@@ -124,6 +124,10 @@ def make_trip_pdf(frame, meta, novelty):
             c.setFont("Helvetica", 10)
             c.setFillColor(MUTED)
             c.drawString(margin, page_h - 67, f"{meta['username']}  ·  {meta['start']} t/m {meta['end']}")
+            area = [*meta.get("place_names", ()), *([meta.get("area_name") or "Getekend gebied"] if meta.get("geometry") else [])]
+            c.setFont("Helvetica", 8)
+            c.drawString(margin, page_h - 80, _fit("Gebied: " + (" of ".join(area) if area else "wereldwijd"),
+                                                   page_w - 2 * margin, "Helvetica", 8))
             values = [
                 (meta.get("observation_total", sum(int(r["Waarnemingen in gebied"]) for r in rows)), "Waarnemingen"),
                 (meta.get("unidentified_total", 0), "Nog niet op soort"),

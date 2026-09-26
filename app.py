@@ -12,7 +12,7 @@ from streamlit_folium import st_folium
 
 from report_pdf import make_trip_pdf
 from taxonomy import sort_species_overview
-from trip_data import batch_stars, first_record, normalize_geometry, personal_species_counts, search_places, species_frame, star_for, summary_counts, trip_observations
+from trip_data import batch_stars, exact_place_match, first_record, normalize_geometry, personal_species_counts, search_places, species_frame, star_for, summary_counts, trip_observations
 
 st.set_page_config(page_title="Tripreport Verkenner", page_icon="🧭", layout="wide")
 st.markdown("""<style>
@@ -64,13 +64,24 @@ with st.container(border=True):
             search = st.form_submit_button("Zoeken", use_container_width=True)
     if search:
         try:
-            st.session_state.place_results = search_places(query)
+            found = search_places(query)
+            exact = exact_place_match(query, found)
+            if exact:
+                if exact["id"] not in [p["id"] for p in st.session_state.places]:
+                    st.session_state.places.append(exact)
+                st.session_state.place_results = []
+                st.success(f"{exact['name']} is toegevoegd als actief gebied.")
+            else:
+                st.session_state.place_results = found
+                if not found:
+                    st.warning("Geen iNaturalist-plaats gevonden. Probeer een andere naam.")
         except Exception as exc:
             st.error(str(exc))
     if st.session_state.place_results:
+        st.warning("De zoektekst is nog geen gebiedsfilter. Kies hieronder een resultaat en klik op ‘Plaats toevoegen’.")
         choices = {f"{p['name']} · {p['id']}": p for p in st.session_state.place_results}
         pick = st.selectbox("Kies een plaats", ["— Selecteer —", *choices], key="place_pick")
-        if st.button("Plaats toevoegen", disabled=pick not in choices):
+        if st.button("Plaats toevoegen", type="primary", disabled=pick not in choices):
             p = choices[pick]
             if p["id"] not in [x["id"] for x in st.session_state.places]:
                 st.session_state.places.append(p)
@@ -138,6 +149,8 @@ if go:
                 st.session_state.trip = frame
                 st.session_state.query = {"username": username, "start": start.isoformat(), "end": end.isoformat(),
                                           "places": places, "geometry": json.dumps(geometry, sort_keys=True) if geometry else "",
+                                          "place_names": tuple(p["name"] for p in st.session_state.places),
+                                          "area_name": st.session_state.area_name if geometry else "",
                                           "observation_total": len(obs),
                                           "unidentified_total": len(obs) - int(frame["Waarnemingen in gebied"].sum())}
                 st.session_state.novelty = {}
@@ -250,6 +263,8 @@ if frame is not None and meta:
     st.divider()
     st.subheader(f"Soorten van {meta['username']}")
     st.caption(f"{meta['start']} t/m {meta['end']} · {len(frame):,} soorten · {meta.get('observation_total', int(frame['Waarnemingen in gebied'].sum())):,} waarnemingen")
+    active_names = [*meta.get("place_names", ()), *([meta.get("area_name") or "Getekend gebied"] if meta["geometry"] else [])]
+    st.caption("Gebied: " + (" of ".join(active_names) if active_names else "wereldwijd (geen gebiedsfilter)"))
     summary_slot = st.empty()
     if frame.empty:
         summary_slot.markdown(summary_html(frame, meta, st.session_state.novelty), unsafe_allow_html=True)

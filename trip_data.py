@@ -5,6 +5,7 @@ from functools import lru_cache
 import math
 import threading
 import time
+import unicodedata
 
 import pandas as pd
 import requests
@@ -43,8 +44,18 @@ def search_places(query):
     if len(query.strip()) < 2:
         return []
     data = get("/places/autocomplete", {"q": query.strip(), "per_page": 15})
-    return [{"id": int(p["id"]), "name": p.get("display_name") or p.get("name")}
+    return [{"id": int(p["id"]), "name": p.get("display_name") or p.get("name"),
+             "short_name": p.get("name") or p.get("display_name")}
             for p in data.get("results", []) if p.get("id")]
+
+
+def exact_place_match(query, results):
+    """Auto-select only one exact name, ignoring accents and case."""
+    def normalized(value):
+        value = unicodedata.normalize("NFKD", str(value or "").casefold())
+        return "".join(c for c in value if not unicodedata.combining(c)).strip()
+    matches = [p for p in results if normalized(p.get("short_name")) == normalized(query)]
+    return matches[0] if len({p["id"] for p in matches}) == 1 else None
 
 
 def normalize_geometry(geometry):
