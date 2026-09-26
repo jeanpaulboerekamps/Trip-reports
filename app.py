@@ -3,6 +3,7 @@ from datetime import date, timedelta
 import html
 import json
 import re
+import tempfile
 from pathlib import Path
 from uuid import uuid4
 
@@ -16,7 +17,50 @@ from streamlit.components.v1 import declare_component
 from report_pdf import make_trip_pdf
 from taxonomy import sort_species_overview
 from trip_data import batch_stars, exact_place_match, first_record, normalize_geometry, own_firsts_in_window, personal_species_counts, search_places, species_frame, star_for, summary_counts, trip_observations
-from trip_store import make_record, matches_search, summary_snapshot, validate_import
+
+
+# Embedded so a single app.py update can start even if the component directory
+# was not uploaded by the hosting interface.
+_BROWSER_COMPONENT_HTML = '<!doctype html>\n<html lang="nl"><head><meta charset="utf-8"></head><body style="margin:0">\n<script>\nconst STORAGE_KEY = "tripreport_verkenner_saved_trips_v1";\nlet lastNonce = null;\nfunction send(type, extra = {}) {\n  window.parent.postMessage({isStreamlitMessage:true, type, ...extra}, "*");\n}\nfunction read() {\n  const value = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");\n  if (!Array.isArray(value)) throw new Error("De bewaarde trips zijn beschadigd.");\n  return value;\n}\nfunction publish(nonce, records, error = "") {\n  send("streamlit:setComponentValue", {dataType:"json", value:{nonce, records, error}});\n}\nwindow.addEventListener("message", event => {\n  if (event.data.type !== "streamlit:render") return;\n  const {op = "list", nonce = "initial", record, imported} = event.data.args || {};\n  if (nonce === lastNonce) return;\n  lastNonce = nonce;\n  try {\n    let records = read();\n    if (op === "save") {\n      const pos = records.findIndex(x => x.id === record.id);\n      if (pos < 0) records.push(record); else records[pos] = record;\n      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));\n    } else if (op === "import") {\n      if (!Array.isArray(imported) || imported.length > 1000 ||\n          !imported.every(x => x && typeof x.id === "string" && x.search && x.summary)) {\n        throw new Error("Dit bestand bevat geen geldige trips.");\n      }\n      const byId = new Map(records.map(x => [x.id, x]));\n      imported.forEach(x => byId.set(x.id, x));\n      records = [...byId.values()];\n      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));\n    }\n    publish(nonce, records);\n  } catch (error) {\n    publish(nonce, [], String(error.message || error));\n  }\n});\nsend("streamlit:componentReady", {apiVersion:1});\nsend("streamlit:setFrameHeight", {height:0});\n</script>\n</body></html>\n'
+
+def make_record(name, search, summary, trip_id=None):
+    name = name.strip()
+    if not name or len(name) > 120:
+        raise ValueError("Geef de trip een naam van maximaal 120 tekens.")
+    names = [*search.get("place_names", []),
+             *([search.get("area_name") or "Getekend gebied"] if search.get("geometry") else [])]
+    return {"id": trip_id or str(uuid4()), "name": name, "username": search["username"],
+            "start_date": search["start"], "end_date": search["end"],
+            "area_label": " of ".join(names) if names else "Wereldwijd",
+            "search": search, "summary": summary}
+
+def summary_snapshot(frame, meta, novelty, counter):
+    counts = counter(novelty, frame["species_id"], bool(meta["places"] or meta["geometry"]))
+    return {"observations": int(meta["observation_total"]),
+            "unidentified": int(meta.get("unidentified_total", 0)),
+            "species": len(frame), "own": counts["own"], "area": counts["area"],
+            "global": counts["global"], "unresolved": counts["unresolved"]}
+
+def matches_search(row, value):
+    haystack = " ".join(str(row.get(key) or "") for key in
+                        ("name", "username", "area_label", "start_date", "end_date")).casefold()
+    return all(term in haystack for term in value.casefold().split())
+
+def validate_import(raw):
+    records = json.loads(raw)
+    if not isinstance(records, list) or len(records) > 1000:
+        raise ValueError("Het bestand bevat geen geldige lijst met trips.")
+    required = ("id", "name", "username", "start_date", "end_date", "area_label", "search", "summary")
+    for row in records:
+        if not isinstance(row, dict) or not all(k in row for k in required):
+            raise ValueError("Het bestand bevat een ongeldige trip.")
+        if not isinstance(row["id"], str) or not isinstance(row["search"], dict) or not isinstance(row["summary"], dict):
+            raise ValueError("Het bestand bevat een ongeldige trip.")
+        if not all(k in row["search"] for k in ("username", "start", "end", "places", "geometry")):
+            raise ValueError("Het bestand mist zoekkenmerken.")
+        date.fromisoformat(row["start_date"])
+        date.fromisoformat(row["end_date"])
+    return records
 
 st.set_page_config(page_title="Tripreport Verkenner", page_icon="🧭", layout="wide")
 st.markdown("""<style>
@@ -54,7 +98,12 @@ for key, value in {"trip_username": "", "trip_start": date.today() - timedelta(d
         st.session_state[key] = value
 
 
-browser_store = declare_component("trip_browser_store", path=str(Path(__file__).parent / "local_store_component"))
+component_dir = Path(__file__).parent / "local_store_component"
+if not (component_dir / "index.html").is_file():
+    component_dir = Path(tempfile.gettempdir()) / "tripreport-browser-store-v1"
+    component_dir.mkdir(parents=True, exist_ok=True)
+    (component_dir / "index.html").write_text(_BROWSER_COMPONENT_HTML, encoding="utf-8")
+browser_store = declare_component("trip_browser_store", path=str(component_dir))
 action = st.session_state.storage_action
 storage_event = browser_store(**action, key="trip_browser_store")
 if isinstance(storage_event, dict) and storage_event.get("nonce") != st.session_state.last_storage_nonce:

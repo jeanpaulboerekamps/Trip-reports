@@ -28,7 +28,7 @@ Bij een getekend gebied worden observaties in de begrenzende rechthoek opgehaald
 
 ## Installatie
 
-Pak deze map uit en plaats alle Python-bestanden, de map `local_store_component`, `requirements.txt` en `README.md` op het hoogste niveau van je repository. Maak in Streamlit Community Cloud een app met `app.py` als startbestand, of start lokaal:
+Pak deze map uit en plaats alle Python-bestanden, `requirements.txt` en `README.md` op het hoogste niveau van je repository. De browsercomponent zit ook in `app.py`; de meegeleverde map `local_store_component` is optioneel. Maak in Streamlit Community Cloud een app met `app.py` als startbestand, of start lokaal:
 
 ```bash
 python -m pip install -r requirements.txt
