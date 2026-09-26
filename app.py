@@ -10,6 +10,7 @@ import streamlit as st
 from folium.plugins import Draw
 from streamlit_folium import st_folium
 
+from report_pdf import make_trip_pdf
 from taxonomy import sort_species_overview
 from trip_data import batch_stars, first_record, normalize_geometry, personal_species_counts, search_places, species_frame, star_for, summary_counts, trip_observations
 
@@ -29,7 +30,7 @@ st.markdown("""<style>
 .pill{font-size:.8rem;background:rgba(58,130,79,.13);border-radius:30px;padding:.25rem .5rem}
 .legend{display:flex;gap:1rem;flex-wrap:wrap;margin:.7rem 0 1.1rem}.legend span{font-size:.92rem}
 .legend b{font-size:1.35rem;vertical-align:middle}.legend .red{color:#e3342f}.legend .orange{color:#f28b24}.legend .yellow{color:#e3b51e}.legend .yellow.rg{-webkit-text-stroke:1.5px #d22e32;paint-order:stroke fill}
-.trip-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:.65rem;margin:.85rem 0 1.4rem}
+.trip-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.65rem;margin:.85rem 0 1.4rem}
 .trip-stat{border:1px solid #cfddd3;background:#edf5ef;border-radius:12px;padding:.8rem;min-width:0}
 .trip-stat strong{display:block;font-size:1.55rem;line-height:1.15;color:#1b5035}
 .trip-stat span{display:block;font-size:.85rem;line-height:1.25;margin-top:.25rem}
@@ -76,7 +77,7 @@ with st.container(border=True):
             st.session_state.place_results = []
             st.rerun()
     if st.session_state.places:
-        st.caption("Gekozen: " + " · ".join(p["name"] for p in st.session_state.places))
+        st.success("Actief gebied: " + " · ".join(p["name"] for p in st.session_state.places))
         remove = st.selectbox("Plaats verwijderen", ["— Geen —", *[p["name"] for p in st.session_state.places]])
         if remove != "— Geen —" and st.button("Verwijder plaats"):
             st.session_state.places = [p for p in st.session_state.places if p["name"] != remove]
@@ -109,6 +110,8 @@ with st.container(border=True):
             st.session_state.area_name = ""
             st.rerun()
     st.caption("Zonder gebied zoeken we wereldwijd. Bij een tekening tellen alleen waarnemingen met openbare coördinaten binnen de exacte grens.")
+    if not st.session_state.places and not st.session_state.geometry:
+        st.info("Er is nog geen gebied gekozen. Voeg een zoekresultaat toe met ‘Plaats toevoegen’ of teken een gebied om oranje sterren te berekenen.")
     go = st.button("🔎 Tripreport maken", type="primary", use_container_width=True)
 
 if go:
@@ -135,8 +138,11 @@ if go:
                 st.session_state.trip = frame
                 st.session_state.query = {"username": username, "start": start.isoformat(), "end": end.isoformat(),
                                           "places": places, "geometry": json.dumps(geometry, sort_keys=True) if geometry else "",
-                                          "observation_total": len(obs)}
+                                          "observation_total": len(obs),
+                                          "unidentified_total": len(obs) - int(frame["Waarnemingen in gebied"].sum())}
                 st.session_state.novelty = {}
+                st.session_state.pdf_bytes = None
+                st.session_state.pdf_key = None
                 st.session_state.bulk_failed = False
                 st.session_state.slow_mode = False
                 status.update(label="Tripreport gereed", state="complete")
@@ -178,9 +184,10 @@ def summary_html(all_species, meta, novelty):
         return f"≥{value:,}" if counts["unresolved"] else f"{value:,}"
     cells = [
         (f"{meta.get('observation_total', int(all_species['Waarnemingen in gebied'].sum())):,}", "Waarnemingen"),
+        (f"{meta.get('unidentified_total', 0):,}", "Nog niet op soort"),
         (f"{len(all_species):,}", "Soorten"),
         (display(counts["own"]), "Nieuw voor mij"),
-        (display(counts["area"]), "Nieuw in gebied"),
+        (display(counts["area"]), "Nieuw in gebied" if has_area else "Geen gebied gekozen"),
         (display(counts["global"]), "Nieuw op iNaturalist"),
     ]
     return '<div class="trip-summary">' + ''.join(
@@ -242,12 +249,14 @@ meta = st.session_state.query
 if frame is not None and meta:
     st.divider()
     st.subheader(f"Soorten van {meta['username']}")
-    st.caption(f"{meta['start']} t/m {meta['end']} · {len(frame):,} soorten · {int(frame['Waarnemingen in gebied'].sum()) if len(frame) else 0:,} waarnemingen")
+    st.caption(f"{meta['start']} t/m {meta['end']} · {len(frame):,} soorten · {meta.get('observation_total', int(frame['Waarnemingen in gebied'].sum())):,} waarnemingen")
     summary_slot = st.empty()
     if frame.empty:
         summary_slot.markdown(summary_html(frame, meta, st.session_state.novelty), unsafe_allow_html=True)
         st.info("Geen op soort geïdentificeerde waarnemingen gevonden binnen deze selectie.")
     else:
+        if not meta["places"] and not meta["geometry"]:
+            st.info("Oranje sterren zijn pas mogelijk na het toevoegen van een land of streek, of het tekenen van een gebied. Maak daarna het tripreport opnieuw.")
         sort_by = st.selectbox("Volgorde foto's", ["Taxonomie (rijk → soort)", "Aantal waarnemingen"], index=0)
         ordered = sort_species_overview(frame, sort_by)
         maximum = len(ordered)
@@ -255,10 +264,26 @@ if frame is not None and meta:
         current = ordered.head(shown)
         st.markdown('<div class="legend"><span><b class="yellow">★</b> Mijn eerste waarneming</span><span><b class="yellow rg">★</b> Eigen eerste met Research Grade tijdens reis</span><span><b class="orange">★</b> Eerste in gekozen gebied</span><span><b class="red">★</b> Eerste op iNaturalist</span></div>', unsafe_allow_html=True)
         st.caption("Per soort verschijnt de hoogste toepasselijke ster (rood > oranje > geel). Een eerste eigen waarneming en een eerste waarneming in het gebied worden onafhankelijk gecontroleerd. Een eerdere eigen of gebiedswaarneming sluit een wereldwijde eerste uit. Bij een te groot historisch kaartgebied wordt de oranje ster overgeslagen.")
+        download_controls = st.empty()
         show_progressive_grid(current, ordered, meta, summary_slot)
         export = ordered.drop(columns=["obs_ids", "Foto"], errors="ignore").copy()
         export["Ster"] = export["species_id"].map(lambda sid: (st.session_state.novelty.get(int(sid)) or {}).get("star", ""))
         for column, flag in [("Nieuw voor mij", "own"), ("Nieuw in gebied", "area"), ("Nieuw op iNaturalist", "global")]:
             export[column] = export["species_id"].map(lambda sid: (st.session_state.novelty.get(int(sid)) or {}).get(flag))
         safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", meta["username"])
-        st.download_button("⬇️ Soortenlijst als CSV", export.to_csv(index=False).encode("utf-8-sig"), f"tripreport_{safe}_{meta['start']}_{meta['end']}.csv", "text/csv")
+        with download_controls.container():
+            csv_col, pdf_col = st.columns(2)
+            with csv_col:
+                st.download_button("⬇️ Soortenlijst als CSV", export.to_csv(index=False).encode("utf-8-sig"), f"tripreport_{safe}_{meta['start']}_{meta['end']}.csv", "text/csv")
+            with pdf_col:
+                pdf_key = (meta["username"], meta["start"], meta["end"], meta["places"], meta["geometry"], sort_by)
+                if st.button("📄 PDF van volledig overzicht maken"):
+                    with st.spinner("PDF met je eigen foto's maken…"):
+                        try:
+                            st.session_state.pdf_bytes = make_trip_pdf(ordered, meta, st.session_state.novelty)
+                            st.session_state.pdf_key = pdf_key
+                        except Exception as exc:
+                            st.error(f"De PDF kon niet worden gemaakt: {exc}")
+                if st.session_state.get("pdf_bytes") and st.session_state.get("pdf_key") == pdf_key:
+                    st.download_button("⬇️ PDF downloaden", st.session_state.pdf_bytes,
+                                       f"tripreport_{safe}_{meta['start']}_{meta['end']}.pdf", "application/pdf")

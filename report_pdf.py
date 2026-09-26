@@ -1,0 +1,171 @@
+"""Printable trip report with the observer's photos and complete species list."""
+from concurrent.futures import ThreadPoolExecutor
+from io import BytesIO
+import math
+
+import requests
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase.pdfmetrics import stringWidth
+from reportlab.pdfgen import canvas
+
+from trip_data import summary_counts
+
+INK = colors.HexColor("#173d2e")
+MUTED = colors.HexColor("#607468")
+PALE = colors.HexColor("#edf5ef")
+BORDER = colors.HexColor("#d2dfd5")
+
+
+def _photo(url):
+    if not url:
+        return None
+    # iNaturalist's small derivative is sufficient for a printable thumbnail.
+    thumb = url.replace("medium.", "small.")
+    try:
+        response = requests.get(thumb, timeout=(5, 12), headers={"User-Agent": "Tripreport-Verkenner/1.0"})
+        response.raise_for_status()
+        if len(response.content) > 3_000_000:
+            return None
+        return response.content
+    except requests.RequestException:
+        return None
+
+
+def _fit(text, width, font="Helvetica", size=9):
+    text = str(text or "")
+    while text and stringWidth(text, font, size) > width:
+        text = text[:-1]
+    return text if not text or stringWidth(text, font, size) <= width else text + "…"
+
+
+def _draw_star(c, cx, cy, fill, outline=None):
+    outer, inner = 9, 4
+    points = []
+    for i in range(10):
+        radius = outer if i % 2 == 0 else inner
+        angle = math.pi / 2 + i * math.pi / 5
+        points.append((cx + radius * math.cos(angle), cy + radius * math.sin(angle)))
+    path = c.beginPath()
+    path.moveTo(*points[0])
+    for point in points[1:]:
+        path.lineTo(*point)
+    path.close()
+    c.setFillColor(fill)
+    c.setStrokeColor(outline or fill)
+    c.setLineWidth(1.8 if outline else 0.6)
+    c.drawPath(path, fill=1, stroke=1)
+
+
+def _draw_card(c, row, novelty, photo_bytes, x, y, width, height):
+    c.setFillColor(colors.white)
+    c.setStrokeColor(BORDER)
+    c.roundRect(x, y, width, height, 8, fill=1, stroke=1)
+    image_h = 98
+    c.setFillColor(PALE)
+    c.roundRect(x + 5, y + height - image_h - 5, width - 10, image_h, 5, fill=1, stroke=0)
+    if photo_bytes:
+        try:
+            image = ImageReader(BytesIO(photo_bytes))
+            iw, ih = image.getSize()
+            box_w, box_h = width - 10, image_h
+            scale = min(box_w / iw, box_h / ih)
+            draw_w, draw_h = iw * scale, ih * scale
+            c.drawImage(image, x + (width - draw_w) / 2,
+                        y + height - 5 - (box_h + draw_h) / 2,
+                        draw_w, draw_h, mask="auto")
+        except Exception:
+            pass
+    record = novelty.get(int(row["species_id"])) or {}
+    star = record.get("star")
+    star_colors = {"🟡": colors.HexColor("#f0c824"),
+                   "🟠": colors.HexColor("#ef8a24"),
+                   "🔴": colors.HexColor("#df3f39")}
+    if star in star_colors:
+        _draw_star(c, x + width - 17, y + height - 17, star_colors[star],
+                   colors.HexColor("#d22e32") if star == "🟡" and row.get("Trip RG") else None)
+    tx = x + 9
+    c.setFillColor(INK)
+    c.setFont("Helvetica-Bold", 9)
+    c.drawString(tx, y + 43, _fit(row.get("Engelse naam") or row.get("Wetenschappelijke naam"), width - 18,
+                                  "Helvetica-Bold", 9))
+    c.setFont("Helvetica-Oblique", 8)
+    c.setFillColor(MUTED)
+    c.drawString(tx, y + 29, _fit(row.get("Wetenschappelijke naam"), width - 18,
+                                  "Helvetica-Oblique", 8))
+    total = row.get("Mijn waarnemingen wereldwijd")
+    total_text = str(int(total)) if total is not None and str(total) not in ("<NA>", "nan") else "?"
+    c.setFont("Helvetica", 7.5)
+    c.drawString(tx, y + 13, f"Reis: {int(row['Waarnemingen in gebied'])}   Mijn totaal: {total_text}")
+    url = str(row.get("iNaturalist") or "")
+    if url.startswith("https://"):
+        c.linkURL(url, (x, y, x + width, y + height), relative=0)
+
+
+def make_trip_pdf(frame, meta, novelty):
+    """Return PDF bytes for the full sorted report, including own thumbnails."""
+    out = BytesIO()
+    c = canvas.Canvas(out, pagesize=A4, pageCompression=1)
+    c.setTitle(f"Tripreport {meta['username']} {meta['start']} - {meta['end']}")
+    page_w, page_h = A4
+    margin, gutter, card_h = 35, 8, 161
+    card_w = (page_w - 2 * margin - 2 * gutter) / 3
+    rows = list(frame.to_dict("records"))
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        photos = list(pool.map(_photo, [str(row.get("Foto") or "") for row in rows]))
+    counts = summary_counts(novelty, frame["species_id"], bool(meta["places"] or meta["geometry"]))
+
+    def page_header(page_no):
+        c.setFillColor(INK)
+        c.setFont("Helvetica-Bold", 20 if page_no == 1 else 13)
+        c.drawString(margin, page_h - 49, "Tripreport" if page_no == 1 else f"Tripreport · {meta['username']}")
+        if page_no == 1:
+            c.setFont("Helvetica", 10)
+            c.setFillColor(MUTED)
+            c.drawString(margin, page_h - 67, f"{meta['username']}  ·  {meta['start']} t/m {meta['end']}")
+            values = [
+                (meta.get("observation_total", sum(int(r["Waarnemingen in gebied"]) for r in rows)), "Waarnemingen"),
+                (meta.get("unidentified_total", 0), "Nog niet op soort"),
+                (len(rows), "Soorten"),
+                (counts["own"], "Nieuw voor mij"),
+                (counts["area"] if counts["area"] is not None else "-", "Nieuw in gebied"),
+                (counts["global"], "Nieuw op iNaturalist"),
+            ]
+            box_w = (page_w - 2 * margin - 10) / 3
+            for i, (value, label) in enumerate(values):
+                col, row_idx = i % 3, i // 3
+                x, y = margin + col * (box_w + 5), page_h - 122 - row_idx * 48
+                c.setFillColor(PALE)
+                c.roundRect(x, y, box_w, 43, 6, fill=1, stroke=0)
+                c.setFillColor(INK)
+                c.setFont("Helvetica-Bold", 15)
+                c.drawString(x + 9, y + 21, str(value))
+                c.setFont("Helvetica", 8)
+                c.drawString(x + 9, y + 8, label)
+            c.setFillColor(MUTED)
+            c.setFont("Helvetica", 8)
+            c.drawString(margin, page_h - 235, "Ster: geel = eigen eerste · oranje = eerste in gebied · rood = eerste op iNaturalist")
+            c.drawString(margin, page_h - 247, "Rode rand om geel = Research Grade tijdens de reis. Foto's komen uit de eigen waarnemingen.")
+        c.setStrokeColor(BORDER)
+        c.line(margin, 27, page_w - margin, 27)
+        c.setFont("Helvetica", 8)
+        c.setFillColor(MUTED)
+        c.drawRightString(page_w - margin, 15, f"Pagina {page_no}")
+
+    page_no = 1
+    page_header(page_no)
+    start_y = page_h - 270
+    for i, row in enumerate(rows):
+        if i and i % 3 == 0:
+            start_y -= card_h + gutter
+        if start_y - card_h < 40:
+            c.showPage()
+            page_no += 1
+            page_header(page_no)
+            start_y = page_h - 72
+        col = i % 3
+        x = margin + col * (card_w + gutter)
+        _draw_card(c, row, novelty, photos[i], x, start_y - card_h, card_w, card_h)
+    c.save()
+    return out.getvalue()

@@ -6,7 +6,7 @@ Een zelfstandige Streamlit-app voor afgeronde reizen op basis van openbare iNatu
 
 1. Vul je openbare iNaturalist-gebruikersnaam en de eerste en laatste reisdag in.
 2. Zoek desgewenst één of meer iNaturalist-plaatsen (land, provincie, streek), teken een veelhoek of rechthoek, of combineer die keuzes. De selectie is de **vereniging** van de gebieden: een waarneming in een van de gekozen plaatsen of in de tekening telt mee. Zonder gebiedskeuze worden alle openbare waarnemingen uit de periode gebruikt.
-3. Klik op **Tripreport maken**. Sorteer het fotoraster taxonomisch of op het aantal eigen waarnemingen tijdens de reis. Standaard worden alle gevonden soorten getoond; met de schuifregelaar kun je dit aantal verkleinen. Download desgewenst de soortenlijst als CSV.
+3. Klik op **Tripreport maken**. Sorteer het fotoraster taxonomisch of op het aantal eigen waarnemingen tijdens de reis. Standaard worden alle gevonden soorten getoond; met de schuifregelaar kun je dit aantal verkleinen. Download desgewenst de soortenlijst als CSV of maak een PDF met het volledige overzicht.
 
 De sterren tonen de hoogste toepasselijke categorie per soort:
 
@@ -14,7 +14,7 @@ De sterren tonen de hoogste toepasselijke categorie per soort:
 - Oranje: de allereerste openbare iNaturalist-waarneming van die soort in de gekozen plaats(en) en/of tekening is een waarneming uit deze reis.
 - Rood: de allereerste openbare iNaturalist-waarneming van die soort wereldwijd is een waarneming uit deze reis.
 
-Een gele ster krijgt een rode rand als minstens één van de geselecteerde reiswaarnemingen van die soort Research Grade heeft. Iedere fotokaart toont zowel het aantal waarnemingen tijdens deze reis als je totale openbare iNaturalist-aantal van die soort, inclusief ondersoorten. De samenvatting telt alle soorten van de reis, ongeacht hoeveel kaarten zichtbaar zijn. Nieuw voor mij en nieuw in gebied zijn onafhankelijke aantallen: een soort kan voor jou al bekend en tegelijk nieuw voor het gebied zijn, of andersom. Een wereldwijde eerste telt ook als eigen eerste en, als er een gebied is gekozen, als eerste in dat gebied. Zonder gebiedskeuze toont het gebiedscijfer een streepje. Bij een onvolledige stercontrole worden de nieuwe aantallen als ondergrens weergegeven.
+Een gele ster krijgt een rode rand als minstens één van de geselecteerde reiswaarnemingen van die soort Research Grade heeft. Iedere fotokaart gebruikt de eerste foto van je eigen eerste geselecteerde waarneming van die soort (als die een foto heeft) en toont zowel het aantal waarnemingen tijdens deze reis als je totale openbare iNaturalist-aantal van die soort, inclusief ondersoorten. De samenvatting toont ook het aantal geselecteerde waarnemingen dat nog niet op soort is geïdentificeerd. Dit is het verschil tussen alle geselecteerde waarnemingen en de waarnemingen die in het soortenraster meetellen. Ze telt alle soorten van de reis, ongeacht hoeveel kaarten zichtbaar zijn. Nieuw voor mij en nieuw in gebied zijn onafhankelijke aantallen: een soort kan voor jou al bekend en tegelijk nieuw voor het gebied zijn, of andersom. Een wereldwijde eerste telt ook als eigen eerste en, als er een gebied is gekozen, als eerste in dat gebied. Zonder gebiedskeuze toont de app duidelijk dat er geen gebied actief is en berekent hij geen oranje sterren. Zoek een plaats en klik op **Plaats toevoegen**, of teken een gebied, en maak het tripreport opnieuw. Bij een onvolledige stercontrole worden de nieuwe aantallen als ondergrens weergegeven.
 
 De vergelijking gebruikt de waarnemingsdatum (`observed_on`) en controleert het **exacte waarnemingsnummer**, zodat een even oude waarneming van iemand anders niet ten onrechte een ster oplevert. De rangorde is rood, oranje, geel. De fotokaarten verschijnen direct en blijven op hun plek tijdens de stercontrole. Alleen de voortgangsbalk verandert; na afloop worden de kaarten één keer met de sterren bijgewerkt. Alle reissoorten worden in groepen van maximaal veertig gecontroleerd en de uitkomst blijft binnen dezelfde sessie bewaard. De app controleert eigen en gebiedsgeschiedenis onafhankelijk. Alleen wanneer geen van beide een eerdere waarneming oplevert, is een wereldwijde eerste nog mogelijk. Onafhankelijke controles binnen een fase lopen gelijktijdig, met een gedeelde limiet voor API-verzoeken. Alleen mogelijke primeurs krijgen vervolgens een afzonderlijke controle. Als de snelle groepscontrole faalt, kun je die opnieuw proberen of bewust de tragere controle per soort starten. Een vraagteken betekent dat die individuele controle niet lukte.
 
@@ -36,3 +36,7 @@ Er is geen wachtwoord of API-sleutel nodig. API-aanroepen worden begrensd tot on
 ```bash
 python -m unittest discover -s tests -v
 ```
+
+## PDF
+
+Klik boven de fotokaarten op **PDF van volledig overzicht maken** en daarna op **PDF downloaden**. De PDF bevat alle soorten in de gekozen sorteervolgorde, met je eigen eerste reiswaarnemingsfoto waar beschikbaar. Het ophalen van veel foto’s kan enige tijd duren; foto’s die niet geladen kunnen worden krijgen een lege achtergrond.

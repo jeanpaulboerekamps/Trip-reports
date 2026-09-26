@@ -136,17 +136,17 @@ def species_frame(observations):
         if not sid:
             continue
         taxon = lookup.get(sid, {})
+        photos = o.get("photos") or []
+        first_photo = ((photos[0].get("medium_url") or photos[0].get("url") or "")
+                       .replace("square", "medium")) if photos else ""
         row = rows.setdefault(sid, {"species_id": sid, "Engelse naam": taxon.get("preferred_common_name") or taxon.get("name") or t.get("name") or "Onbekend",
                                     "Wetenschappelijke naam": taxon.get("name") or t.get("name") or "",
-                                    "Waarnemingen in gebied": 0, "Foto": taxon.get("photo") or t.get("photo") or "",
+                                    "Waarnemingen in gebied": 0, "Foto": first_photo,
                                     "iNaturalist": f"https://www.inaturalist.org/taxa/{sid}", "obs_ids": set(),
                                     "Trip RG": False})
         row["Waarnemingen in gebied"] += 1
         row["obs_ids"].add(int(o["id"]))
         row["Trip RG"] = row["Trip RG"] or o.get("quality_grade") == "research"
-        photos = o.get("photos") or []
-        if photos and not row["Foto"]:
-            row["Foto"] = photos[0].get("url", "").replace("square", "medium")
     if not rows:
         return pd.DataFrame(columns=["species_id", "Engelse naam", "Wetenschappelijke naam", "Waarnemingen in gebied", "Foto", "iNaturalist", "obs_ids", "Trip RG"])
     frame = pd.DataFrame(rows.values())
