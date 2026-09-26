@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="nl"><head><meta charset="utf-8"></head><body style="margin:0">
+<script>
+const STORAGE_KEY = "tripreport_verkenner_saved_trips_v1";
+let lastNonce = null;
+function send(type, extra = {}) {
+  window.parent.postMessage({isStreamlitMessage:true, type, ...extra}, "*");
+}
+function read() {
+  const value = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+  if (!Array.isArray(value)) throw new Error("De bewaarde trips zijn beschadigd.");
+  return value;
+}
+function publish(nonce, records, error = "") {
+  send("streamlit:setComponentValue", {dataType:"json", value:{nonce, records, error}});
+}
+window.addEventListener("message", event => {
+  if (event.data.type !== "streamlit:render") return;
+  const {op = "list", nonce = "initial", record, imported} = event.data.args || {};
+  if (nonce === lastNonce) return;
+  lastNonce = nonce;
+  try {
+    let records = read();
+    if (op === "save") {
+      const pos = records.findIndex(x => x.id === record.id);
+      if (pos < 0) records.push(record); else records[pos] = record;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+    } else if (op === "import") {
+      if (!Array.isArray(imported) || imported.length > 1000 ||
+          !imported.every(x => x && typeof x.id === "string" && x.search && x.summary)) {
+        throw new Error("Dit bestand bevat geen geldige trips.");
+      }
+      const byId = new Map(records.map(x => [x.id, x]));
+      imported.forEach(x => byId.set(x.id, x));
+      records = [...byId.values()];
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+    }
+    publish(nonce, records);
+  } catch (error) {
+    publish(nonce, [], String(error.message || error));
+  }
+});
+send("streamlit:componentReady", {apiVersion:1});
+send("streamlit:setFrameHeight", {height:0});
+</script>
+</body></html>
