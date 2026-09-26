@@ -8,6 +8,12 @@ Een zelfstandige Streamlit-app voor afgeronde reizen op basis van openbare iNatu
 2. Zoek desgewenst een iNaturalist-plaats (land, provincie, streek) of teken een veelhoek of rechthoek. Een nieuwe keuze vervangt standaard het vorige gebied. Een unieke exacte plaatsnaam, ook zonder accent getypt, wordt direct gekozen. Bij meerdere treffers kies je een resultaat en klik je op **Gebied vervangen**. Vink **Samenvoegen met huidig gebied** aan wanneer je meerdere plaatsen als één gebied wilt gebruiken; bij een nieuwe tekening bestaat dezelfde optie. Een waarneming in een van de samengevoegde plaatsen of in de tekening telt dan mee. Het rapport vermeldt het werkelijk actieve gebied. Zonder gebiedskeuze worden alle openbare waarnemingen uit de periode gebruikt.
 3. Klik op **Tripreport maken**. Sorteer het fotoraster taxonomisch of op het aantal eigen waarnemingen tijdens de reis. Standaard worden alle gevonden soorten getoond; met de schuifregelaar kun je dit aantal verkleinen. Download desgewenst de soortenlijst als CSV of maak een PDF met het volledige overzicht.
 
+## Trips bewaren en terugvinden
+
+Na het maken en controleren van een trip kun je boven de samenvatting een naam invullen en op **Trip bewaren** klikken. In **Bewaarde trips** zoek je later op naam, iNaturalist-gebruiker, gebied of datum. De lijst toont de opgeslagen samenvatting zonder iNaturalist opnieuw te bevragen. **Zoekkenmerken laden** zet de gebruiker, datums en het gebied terug in de invoervelden; klik vervolgens op **Tripreport maken** om het actuele foto-overzicht opnieuw op te bouwen. Een geladen trip kun je met bijgewerkte aantallen opnieuw bewaren.
+
+De gegevens staan in de lokale opslag van deze browser op dit apparaat. Je hebt geen account of database nodig. Gebruik **Reservekopie downloaden** en bewaar het JSON-bestand zelf; met **Reservekopie importeren** kun je de trips in een andere browser overzetten. De import voegt trips op hun unieke ID samen en vervangt een bestaande trip met dezelfde ID. Browsergegevens wissen of privémodus gebruiken kan opgeslagen trips verwijderen. Foto's en de volledige soortenlijst worden niet bewaard.
+
 De sterren tonen alle toepasselijke categorieën per soort naast elkaar:
 
 - Geel: de allereerste eigen iNaturalist-waarneming van die soort is een waarneming uit deze reis.
@@ -22,14 +28,14 @@ Bij een getekend gebied worden observaties in de begrenzende rechthoek opgehaald
 
 ## Installatie
 
-Pak deze map uit en plaats `app.py`, `trip_data.py`, `taxonomy.py`, `requirements.txt` en `README.md` op het hoogste niveau van een eigen repository. Maak in Streamlit Community Cloud een app met `app.py` als startbestand, of start lokaal:
+Pak deze map uit en plaats alle Python-bestanden, de map `local_store_component`, `requirements.txt` en `README.md` op het hoogste niveau van je repository. Maak in Streamlit Community Cloud een app met `app.py` als startbestand, of start lokaal:
 
 ```bash
 python -m pip install -r requirements.txt
 python -m streamlit run app.py
 ```
 
-Er is geen wachtwoord of API-sleutel nodig. API-aanroepen worden begrensd tot ongeveer zestig per minuut. Bij veel zichtbare soorten kan het aanvullen van alle sterren nog enkele minuten duren, maar het fotogrid blijft intussen zichtbaar. Openbare taxonomie wordt in `.cache/taxonomy.sqlite3` hergebruikt.
+Voor alleen het opbouwen van een tripreport is geen wachtwoord of API-sleutel nodig; voor duurzaam bewaren wel. iNaturalist API-aanroepen worden begrensd tot ongeveer zestig per minuut. Bij veel zichtbare soorten kan het aanvullen van alle sterren nog enkele minuten duren, maar het fotogrid blijft intussen zichtbaar. Openbare taxonomie wordt in `.cache/taxonomy.sqlite3` hergebruikt.
 
 ## Controles
 

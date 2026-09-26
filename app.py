@@ -3,16 +3,20 @@ from datetime import date, timedelta
 import html
 import json
 import re
+from pathlib import Path
+from uuid import uuid4
 
 import folium
 import pandas as pd
 import streamlit as st
 from folium.plugins import Draw
 from streamlit_folium import st_folium
+from streamlit.components.v1 import declare_component
 
 from report_pdf import make_trip_pdf
 from taxonomy import sort_species_overview
 from trip_data import batch_stars, exact_place_match, first_record, normalize_geometry, own_firsts_in_window, personal_species_counts, search_places, species_frame, star_for, summary_counts, trip_observations
+from trip_store import make_record, matches_search, summary_snapshot, validate_import
 
 st.set_page_config(page_title="Tripreport Verkenner", page_icon="🧭", layout="wide")
 st.markdown("""<style>
@@ -41,19 +45,90 @@ st.markdown("""<style>
 for key, value in {"places": [], "geometry": None, "area_name": "", "trip": None, "query": None, "novelty": {}, "place_results": [], "show_map": False}.items():
     if key not in st.session_state:
         st.session_state[key] = value
+for key, value in {"trip_username": "", "trip_start": date.today() - timedelta(days=7),
+                   "trip_end": date.today() - timedelta(days=1), "trip_name": "",
+                   "saved_trip_id": None, "saved_search": None, "show_saved": False,
+                   "saved_rows": [], "storage_action": {"op": "list", "nonce": "initial"},
+                   "last_storage_nonce": None, "storage_notice": ""}.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
+
+
+browser_store = declare_component("trip_browser_store", path=str(Path(__file__).parent / "local_store_component"))
+action = st.session_state.storage_action
+storage_event = browser_store(**action, key="trip_browser_store")
+if isinstance(storage_event, dict) and storage_event.get("nonce") != st.session_state.last_storage_nonce:
+    st.session_state.last_storage_nonce = storage_event.get("nonce")
+    if storage_event.get("error"):
+        st.session_state.storage_notice = "Opslag in deze browser is mislukt: " + storage_event["error"]
+    else:
+        st.session_state.saved_rows = storage_event.get("records", [])
+        if action.get("op") == "save":
+            st.session_state.storage_notice = "Trip is in deze browser bewaard."
+        elif action.get("op") == "import":
+            st.session_state.storage_notice = "Trips zijn geïmporteerd."
+    st.session_state.storage_action = {"op": "list", "nonce": "initial"}
 
 st.title("🧭 Tripreport Verkenner")
 st.markdown('<div class="intro"><b>Je afgeronde reis in soorten.</b> Kies je iNaturalist-gebruikersnaam, reisdatums en een gebied. De foto’s komen uit jouw openbare waarnemingen.</div>', unsafe_allow_html=True)
+if st.session_state.storage_notice:
+    st.info(st.session_state.storage_notice)
+    st.session_state.storage_notice = ""
+
+if st.button("📚 Bewaarde trips" if not st.session_state.show_saved else "📚 Bewaarde trips sluiten"):
+    st.session_state.show_saved = not st.session_state.show_saved
+if st.session_state.show_saved:
+    with st.container(border=True):
+        st.subheader("Bewaarde trips op dit apparaat")
+        st.caption("Deze trips staan in de opslag van deze browser. Gebruik export als reservekopie of voor een andere browser.")
+        needle = st.text_input("Zoek op tripnaam, gebruiker, gebied of datum")
+        saved_rows = [row for row in st.session_state.saved_rows if matches_search(row, needle)]
+        st.caption(f"{len(saved_rows)} trips gevonden")
+        for row in sorted(saved_rows, key=lambda x: x.get("start_date", ""), reverse=True):
+            with st.container(border=True):
+                st.markdown(f"**{row['name']}** · {row['username']} · {row['start_date']} t/m {row['end_date']}")
+                st.caption("Gebied: " + row["area_label"])
+                summary = row["summary"]
+                st.write(f"{summary['observations']} waarnemingen · {summary['species']} soorten · {summary['unidentified']} niet op soort · "
+                         f"{summary['own']} nieuw voor mij · {summary['area'] if summary['area'] is not None else '—'} nieuw in gebied · {summary['global']} nieuw op iNaturalist")
+                if st.button("Zoekkenmerken laden", key="load_" + row["id"]):
+                    saved = row["search"]
+                    st.session_state.trip_username = saved["username"]
+                    st.session_state.trip_start = date.fromisoformat(saved["start"])
+                    st.session_state.trip_end = date.fromisoformat(saved["end"])
+                    st.session_state.places = [dict(place) for place in saved.get("selected_places", [])]
+                    st.session_state.geometry = json.loads(saved["geometry"]) if saved.get("geometry") else None
+                    st.session_state.area_name = saved.get("area_name", "")
+                    st.session_state.trip_name = row["name"]
+                    st.session_state.saved_trip_id = row["id"]
+                    st.session_state.saved_search = saved
+                    st.session_state.trip = None
+                    st.session_state.query = None
+                    st.session_state.novelty = {}
+                    st.session_state.show_saved = False
+                    st.rerun()
+        st.download_button("⬇️ Reservekopie downloaden", json.dumps(st.session_state.saved_rows, ensure_ascii=False, indent=2).encode("utf-8"),
+                           "tripreport-bewaarde-trips.json", "application/json")
+        with st.form("import_saved_trips"):
+            backup = st.file_uploader("Reservekopie importeren", type="json")
+            import_now = st.form_submit_button("Importeren")
+        if import_now and backup is not None:
+            try:
+                imported = validate_import(backup.getvalue().decode("utf-8"))
+                st.session_state.storage_action = {"op": "import", "nonce": str(uuid4()), "imported": imported}
+                st.rerun()
+            except (ValueError, UnicodeError, json.JSONDecodeError) as exc:
+                st.error(f"Importeren is mislukt: {exc}")
 
 with st.container(border=True):
     st.subheader("Reis instellen")
     user_col, from_col, to_col = st.columns([2, 1, 1])
     with user_col:
-        username = st.text_input("Openbare iNaturalist-gebruikersnaam", placeholder="Bijvoorbeeld: jouw_gebruikersnaam").strip()
+        username = st.text_input("Openbare iNaturalist-gebruikersnaam", placeholder="Bijvoorbeeld: jouw_gebruikersnaam", key="trip_username").strip()
     with from_col:
-        start = st.date_input("Van", value=date.today() - timedelta(days=7), max_value=date.today())
+        start = st.date_input("Van", max_value=date.today(), key="trip_start")
     with to_col:
-        end = st.date_input("Tot en met", value=date.today() - timedelta(days=1), max_value=date.today())
+        end = st.date_input("Tot en met", max_value=date.today(), key="trip_end")
 
     st.markdown("**Land of streek kiezen**")
     with st.form("place_search", clear_on_submit=False):
@@ -166,10 +241,17 @@ if go:
                 st.session_state.trip = frame
                 st.session_state.query = {"username": username, "start": start.isoformat(), "end": end.isoformat(),
                                           "places": places, "geometry": json.dumps(geometry, sort_keys=True) if geometry else "",
+                                          "selected_places": [dict(p) for p in st.session_state.places],
                                           "place_names": tuple(p["name"] for p in st.session_state.places),
                                           "area_name": st.session_state.area_name if geometry else "",
                                           "observation_total": len(obs),
                                           "unidentified_total": len(obs) - int(frame["Waarnemingen in gebied"].sum())}
+                previous = st.session_state.saved_search
+                if previous and (any(st.session_state.query[k] != previous.get(k) for k in
+                                     ("username", "start", "end", "geometry")) or
+                                 tuple(st.session_state.query["places"]) != tuple(previous.get("places", []))):
+                    st.session_state.saved_trip_id = None
+                    st.session_state.saved_search = None
                 st.session_state.novelty = {}
                 st.session_state.own_first_ids = None
                 st.session_state.pdf_bytes = None
@@ -297,6 +379,21 @@ if frame is not None and meta:
     active_names = [*meta.get("place_names", ()), *([meta.get("area_name") or "Getekend gebied"] if meta["geometry"] else [])]
     st.caption("Gebied: " + (" of ".join(active_names) if active_names else "wereldwijd (geen gebiedsfilter)"))
     summary_slot = st.empty()
+    with st.container(border=True):
+        st.text_input("Naam van deze trip", placeholder="Bijvoorbeeld: Voorjaarsreis Hérault 2026", key="trip_name", max_chars=120)
+        if st.button("💾 Trip bewaren", disabled=not st.session_state.trip_name.strip()):
+            try:
+                snapshot = summary_snapshot(frame, meta, st.session_state.novelty, summary_counts)
+                if snapshot["unresolved"]:
+                    st.warning("Wacht tot de stercontrole klaar is voordat je deze trip bewaart.")
+                else:
+                    record = make_record(st.session_state.trip_name, meta, snapshot, st.session_state.saved_trip_id)
+                    st.session_state.saved_trip_id = record["id"]
+                    st.session_state.saved_search = meta.copy()
+                    st.session_state.storage_action = {"op": "save", "nonce": str(uuid4()), "record": record}
+                    st.rerun()
+            except Exception as exc:
+                st.error(f"Bewaren is mislukt: {exc}")
     if frame.empty:
         summary_slot.markdown(summary_html(frame, meta, st.session_state.novelty), unsafe_allow_html=True)
         st.info("Geen op soort geïdentificeerde waarnemingen gevonden binnen deze selectie.")
