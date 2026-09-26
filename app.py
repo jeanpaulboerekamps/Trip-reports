@@ -11,7 +11,7 @@ from folium.plugins import Draw
 from streamlit_folium import st_folium
 
 from taxonomy import sort_species_overview
-from trip_data import first_record, normalize_geometry, search_places, species_frame, star_for, trip_observations
+from trip_data import batch_stars, first_record, normalize_geometry, search_places, species_frame, star_for, trip_observations
 
 st.set_page_config(page_title="Tripreport Verkenner", page_icon="🧭", layout="wide")
 st.markdown("""<style>
@@ -122,10 +122,64 @@ if go:
                 st.session_state.query = {"username": username, "start": start.isoformat(), "end": end.isoformat(),
                                           "places": places, "geometry": json.dumps(geometry, sort_keys=True) if geometry else ""}
                 st.session_state.stars = {}
+                st.session_state.bulk_failed = False
+                st.session_state.slow_mode = False
                 status.update(label="Tripreport gereed", state="complete")
             except Exception as exc:
                 status.update(label="Ophalen mislukt", state="error")
                 st.error(str(exc))
+
+def card_html(current):
+    cards = []
+    colors = {"🟡": ("yellow", "Mijn eerste waarneming"), "🟠": ("orange", "Eerste in gekozen gebied"), "🔴": ("red", "Eerste op iNaturalist")}
+    for _, row in current.iterrows():
+        sid = int(row["species_id"])
+        name = html.escape(str(row["Engelse naam"] or row["Wetenschappelijke naam"]))
+        scientific = html.escape(str(row["Wetenschappelijke naam"]))
+        url = html.escape(str(row["iNaturalist"]), quote=True)
+        photo = html.escape(str(row["Foto"] or ""), quote=True)
+        star = st.session_state.stars.get(sid, "")
+        badge = f'<span class="star {colors[star][0]}" title="{colors[star][1]}" aria-label="{colors[star][1]}">★</span>' if star in colors else ('<span class="star" title="Controle niet gelukt">?</span>' if star == '?' else '')
+        picture = f'<img class="species-photo" src="{photo}" alt="{name}" loading="lazy">' if photo else '<div class="photo-empty">🌿</div>'
+        cards.append(f'<article class="species-card"><a href="{url}" target="_blank" rel="noopener"><div class="photo-wrap">{picture}{badge}</div><div class="species-body"><div class="species-name">{name}</div><div class="scientific">{scientific}</div><span class="pill">{int(row["Waarnemingen in gebied"]):,} waarnemingen</span></div></a></article>')
+    return '<div class="species-grid">' + ''.join(cards) + '</div>'
+
+
+@st.fragment(run_every="1s")
+def show_progressive_grid(current, meta):
+    """Show cards first; add stars a few taxa at a time without blocking the page."""
+    target = [int(x) for x in current["species_id"]]
+    remaining = [row for _, row in current.iterrows() if int(row["species_id"]) not in st.session_state.stars]
+    done = len(target) - len(remaining)
+    st.caption(f"Sterren gecontroleerd: {done} van {len(target)}" if remaining else f"Sterren gecontroleerd: {len(target)} van {len(target)}")
+    grid = st.empty()
+    grid.markdown(card_html(current), unsafe_allow_html=True)
+    if not remaining:
+        return
+    if st.session_state.get("bulk_failed") and not st.session_state.get("slow_mode"):
+        st.warning("De snelle groepscontrole is mislukt. De foto's blijven zichtbaar; probeer de controle opnieuw of kies de tragere controle per soort.")
+        retry, slow = st.columns(2)
+        if retry.button("Snelle controle opnieuw proberen"):
+            st.session_state.bulk_failed = False
+        if slow.button("Controle per soort starten"):
+            st.session_state.slow_mode = True
+        return
+    batch = remaining[:40 if not st.session_state.get("slow_mode") else 2]
+    try:
+        if st.session_state.get("slow_mode"):
+            checked = {int(row["species_id"]): star_for(row["obs_ids"], first_record(
+                int(row["species_id"]), meta["username"], meta["end"], meta["places"], meta["geometry"])) for row in batch}
+        else:
+            checked = batch_stars(batch, meta["username"], meta["start"], meta["end"], meta["places"], meta["geometry"])
+        st.session_state.stars.update(checked)
+    except Exception:
+        if not st.session_state.get("slow_mode"):
+            st.session_state.bulk_failed = True
+        else:
+            for row in batch:
+                st.session_state.stars[int(row["species_id"])] = "?"
+    grid.markdown(card_html(current), unsafe_allow_html=True)
+
 
 frame = st.session_state.trip
 meta = st.session_state.query
@@ -141,34 +195,9 @@ if frame is not None and meta:
         maximum = len(ordered)
         shown = st.slider("Aantal soorten tonen", 1, maximum, min(50, maximum)) if maximum > 10 else maximum
         current = ordered.head(shown)
-        untested = [r for _, r in current.iterrows() if int(r["species_id"]) not in st.session_state.stars]
-        if untested:
-            with st.status(f"Sterren controleren voor {len(untested)} soorten…", expanded=False) as star_status:
-                for _, row in current.iterrows():
-                    sid = int(row["species_id"])
-                    if sid in st.session_state.stars:
-                        continue
-                    try:
-                        first = first_record(sid, meta["username"], meta["end"], meta["places"], meta["geometry"])
-                        st.session_state.stars[sid] = star_for(row["obs_ids"], first)
-                    except Exception:
-                        st.session_state.stars[sid] = "?"
-                star_status.update(label="Sterren gecontroleerd", state="complete")
         st.markdown('<div class="legend"><span><b class="yellow">★</b> Mijn eerste waarneming</span><span><b class="orange">★</b> Eerste in gekozen gebied</span><span><b class="red">★</b> Eerste op iNaturalist</span></div>', unsafe_allow_html=True)
-        st.caption("Per soort verschijnt de hoogste toepasselijke ster (rood > oranje > geel). De ster geldt als de allereerste waarneming van die soort precies één van jouw geselecteerde reiswaarnemingen is. Bij een te groot historisch kaartgebied wordt de oranje ster overgeslagen; een vraagteken betekent dat de controle niet lukte.")
-        cards = []
-        colors = {"🟡": ("yellow", "Mijn eerste waarneming"), "🟠": ("orange", "Eerste in gekozen gebied"), "🔴": ("red", "Eerste op iNaturalist")}
-        for _, row in current.iterrows():
-            sid = int(row["species_id"])
-            name = html.escape(str(row["Engelse naam"] or row["Wetenschappelijke naam"]))
-            scientific = html.escape(str(row["Wetenschappelijke naam"]))
-            url = html.escape(str(row["iNaturalist"]), quote=True)
-            photo = html.escape(str(row["Foto"] or ""), quote=True)
-            star = st.session_state.stars.get(sid, "")
-            badge = f'<span class="star {colors[star][0]}" title="{colors[star][1]}" aria-label="{colors[star][1]}">★</span>' if star in colors else ('<span class="star" title="Controle niet gelukt">?</span>' if star == '?' else '')
-            picture = f'<img class="species-photo" src="{photo}" alt="{name}" loading="lazy">' if photo else '<div class="photo-empty">🌿</div>'
-            cards.append(f'<article class="species-card"><a href="{url}" target="_blank" rel="noopener"><div class="photo-wrap">{picture}{badge}</div><div class="species-body"><div class="species-name">{name}</div><div class="scientific">{scientific}</div><span class="pill">{int(row["Waarnemingen in gebied"]):,} waarnemingen</span></div></a></article>')
-        st.markdown('<div class="species-grid">'+''.join(cards)+'</div>', unsafe_allow_html=True)
+        st.caption("Per soort verschijnt de hoogste toepasselijke ster (rood > oranje > geel). De controle kijkt eerst naar jouw eerdere waarnemingen, daarna naar eerdere gebiedswaarnemingen en pas daarna wereldwijd. Bij een te groot historisch kaartgebied wordt de oranje ster overgeslagen.")
+        show_progressive_grid(current, meta)
         export = ordered.drop(columns=["obs_ids", "Foto"], errors="ignore").copy()
         export["Ster"] = export["species_id"].map(st.session_state.stars).fillna("").map({"🟡":"Eigen eerste", "🟠":"Eerste in gebied", "🔴":"Eerste iNaturalist", "?":"Niet gecontroleerd"}).fillna("")
         safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", meta["username"])

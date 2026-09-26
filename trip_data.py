@@ -206,3 +206,98 @@ def star_for(ids, first):
     if own in ids:
         return "🟡"
     return ""
+
+
+def _prior_species(ids, cutoff, **filters):
+    """Get prior species in one aggregated request per small taxon batch."""
+    if not ids:
+        return set()
+    wanted = set(map(int, ids))
+    params = {"taxon_ids": ",".join(map(str, sorted(wanted))), "d2": cutoff,
+              "per_page": 500, **filters}
+    first = get("/observations/species_counts", {**params, "page": 1})
+    total = int(first.get("total_results") or 0)
+    if total > 10000:
+        raise RuntimeError("Te veel historische taxa voor een betrouwbare groepscontrole")
+    present = set()
+    for page in range(1, math.ceil(total / 500) + 1):
+        result = first if page == 1 else get("/observations/species_counts", {**params, "page": page})
+        for item in result.get("results", []):
+            taxon = item.get("taxon") or {}
+            lineage = {int(x) for x in [taxon.get("id"), *(taxon.get("ancestor_ids") or [])]
+                       if x and str(x).isdigit()}
+            present.update(wanted & lineage)
+    return present
+
+
+def batch_stars(rows, username, start, end, place_ids=(), geometry_json=""):
+    """Eliminate own, then area, then global prior records in that order."""
+    ids = [int(row["species_id"]) for row in rows]
+    cutoff = (date.fromisoformat(start) - timedelta(days=1)).isoformat()
+    own_prior = _prior_species(ids, cutoff, user_id=username)
+    own_new = [sid for sid in ids if sid not in own_prior]
+    if not own_new:
+        return {sid: "" for sid in ids}
+
+    area_prior = set()
+    area_uncertain = set()
+    if place_ids:
+        with ThreadPoolExecutor(max_workers=min(4, len(place_ids))) as pool:
+            jobs = [pool.submit(_prior_species, own_new, cutoff, place_id=pid)
+                    for pid in place_ids]
+            area_prior = set().union(*(job.result() for job in jobs))
+    if geometry_json:
+        import json
+        geometry = json.loads(geometry_json)
+        def check_prior_polygon(sid):
+            item, complete = _first({"taxon_id": sid, "d2": cutoff}, geometry)
+            return sid, bool(item), complete
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            for sid, found, complete in pool.map(
+                check_prior_polygon, (sid for sid in own_new if sid not in area_prior)
+            ):
+                if found:
+                    area_prior.add(sid)
+                elif not complete:
+                    area_uncertain.add(sid)
+
+    # A prior record in the selected area rules out a worldwide first.
+    global_candidates = [sid for sid in own_new if sid not in area_prior]
+    global_prior = _prior_species(global_candidates, cutoff) if global_candidates else set()
+
+    def check_one(row):
+        sid = int(row["species_id"])
+        observed = row["obs_ids"]
+        # A global first is necessarily an own first and an area first.
+        if sid in own_prior:
+            return sid, ""
+        if sid not in area_prior and sid not in global_prior:
+            candidate = _first({"taxon_id": sid, "d2": end})
+            if candidate and candidate.get("id") in observed:
+                return sid, "🔴"
+        if (place_ids or geometry_json) and sid not in area_prior and sid not in area_uncertain:
+            first_area = []
+            for pid in place_ids:
+                candidate = _first({"taxon_id": sid, "place_id": pid, "d2": end})
+                if candidate:
+                    first_area.append(candidate)
+            complete = True
+            if geometry_json:
+                import json
+                candidate, complete = _first({"taxon_id": sid, "d2": end}, json.loads(geometry_json))
+                if candidate:
+                    first_area.append(candidate)
+            if complete and first_area:
+                earliest = min(first_area, key=lambda o: (o.get("observed_on") or "9999", o["id"]))
+                if earliest["id"] in observed:
+                    return sid, "🟠"
+        if sid not in own_prior:
+            if not place_ids and not geometry_json:
+                return sid, "🟡"
+            candidate = _first({"taxon_id": sid, "user_id": username, "d2": end})
+            if candidate and candidate.get("id") in observed:
+                return sid, "🟡"
+        return sid, ""
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        return dict(pool.map(check_one, rows))

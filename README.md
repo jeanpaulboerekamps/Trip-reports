@@ -14,7 +14,7 @@ De sterren tonen de hoogste toepasselijke categorie per soort:
 - Oranje: de allereerste openbare iNaturalist-waarneming van die soort in de gekozen plaats(en) en/of tekening is een waarneming uit deze reis.
 - Rood: de allereerste openbare iNaturalist-waarneming van die soort wereldwijd is een waarneming uit deze reis.
 
-De vergelijking gebruikt de waarnemingsdatum (`observed_on`) en controleert het **exacte waarnemingsnummer**, zodat een even oude waarneming van iemand anders niet ten onrechte een ster oplevert. De rangorde is rood, oranje, geel. Sterren worden alleen voor de zichtbare fotokaarten berekend en voor dezelfde sessie bewaard. Een vraagteken betekent dat de controle voor die soort niet lukte.
+De vergelijking gebruikt de waarnemingsdatum (`observed_on`) en controleert het **exacte waarnemingsnummer**, zodat een even oude waarneming van iemand anders niet ten onrechte een ster oplevert. De rangorde is rood, oranje, geel. De fotokaarten verschijnen direct; de sterren voor de zichtbare kaarten worden daarna in groepen van maximaal veertig aangevuld en binnen dezelfde sessie bewaard. De app sluit eerst soorten met eerdere eigen waarnemingen uit. Alleen overblijvende soorten krijgen een gebiedscontrole; alleen zonder eerdere gebiedswaarneming volgt een wereldwijde controle. Onafhankelijke controles binnen een fase lopen gelijktijdig, met een gedeelde limiet voor API-verzoeken. Alleen mogelijke primeurs krijgen vervolgens een afzonderlijke controle. Als de snelle groepscontrole faalt, kun je die opnieuw proberen of bewust de tragere controle per soort starten. Een vraagteken betekent dat die individuele controle niet lukte.
 
 Bij een getekend gebied worden observaties in de begrenzende rechthoek opgehaald en daarna tegen de exacte veelhoek getoetst. Alleen waarnemingen met openbare coördinaten kunnen daarin worden opgenomen. Voor een historische veelhoek met meer dan 10.000 kandidaatwaarnemingen per soort wordt geen oranje ster toegekend; geel en rood blijven beschikbaar. Een drukke reisdag met meer dan 10.000 passende waarnemingen vraagt om een kleinere gebieds- of soortselectie. iNaturalist kan afgeschermde locaties anders behandelen dan openbare kaartcoördinaten.
 
@@ -27,7 +27,7 @@ python -m pip install -r requirements.txt
 python -m streamlit run app.py
 ```
 
-Er is geen wachtwoord of API-sleutel nodig. API-aanroepen worden begrensd tot ongeveer zestig per minuut. Vooral de eerste stercontrole bij veel soorten kan daarom enkele minuten duren. Openbare taxonomie wordt in `.cache/taxonomy.sqlite3` hergebruikt.
+Er is geen wachtwoord of API-sleutel nodig. API-aanroepen worden begrensd tot ongeveer zestig per minuut. Bij veel zichtbare soorten kan het aanvullen van alle sterren nog enkele minuten duren, maar het fotogrid blijft intussen zichtbaar. Openbare taxonomie wordt in `.cache/taxonomy.sqlite3` hergebruikt.
 
 ## Controles
 
