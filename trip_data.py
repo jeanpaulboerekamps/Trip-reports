@@ -242,26 +242,27 @@ def first_record(species_id, username, end, place_ids, geometry_json):
     return (own or {}).get("id"), (area or {}).get("id"), (global_first or {}).get("id"), complete
 
 
-def star_for(ids, first):
-    """Highest priority star, awarded only for an exact trip observation ID."""
+def star_for(ids, first, has_area=False):
+    """Keep personal and area firsts independent; choose one display star."""
     own, area, global_id, complete = first
-    if global_id in ids:
-        return "🔴"
-    if complete and area in ids:
-        return "🟠"
-    if own in ids:
-        return "🟡"
-    return ""
+    global_new = global_id in ids
+    own_new = own in ids or global_new
+    area_new = (area in ids if complete else None) if has_area else None
+    if has_area and global_new:
+        area_new = True
+    return {"own": own_new, "area": area_new, "global": global_new,
+            "star": "🔴" if global_new else "🟠" if area_new else "🟡" if own_new else ""}
 
 
-def summary_counts(stars, species_ids, has_area):
+def summary_counts(novelty, species_ids, has_area):
     """Cumulative first-record totals over the complete trip species list."""
-    values = [stars.get(int(sid)) for sid in species_ids]
-    unresolved = sum(value is None or value == "?" for value in values)
+    values = [novelty.get(int(sid)) for sid in species_ids]
+    unresolved = sum(value is None or value.get("own") is None or
+                     (has_area and value.get("area") is None) for value in values)
     return {
-        "own": sum(value in {"🟡", "🟠", "🔴"} for value in values),
-        "area": sum(value in {"🟠", "🔴"} for value in values) if has_area else None,
-        "global": sum(value == "🔴" for value in values),
+        "own": sum(bool(value and value.get("own")) for value in values),
+        "area": sum(bool(value and value.get("area")) for value in values) if has_area else None,
+        "global": sum(bool(value and value.get("global")) for value in values),
         "unresolved": unresolved,
     }
 
@@ -289,21 +290,17 @@ def _prior_species(ids, cutoff, **filters):
 
 
 def batch_stars(rows, username, start, end, place_ids=(), geometry_json=""):
-    """Eliminate own, then area, then global prior records in that order."""
+    """Check personal and regional novelty independently, then global novelty."""
     ids = [int(row["species_id"]) for row in rows]
     cutoff = (date.fromisoformat(start) - timedelta(days=1)).isoformat()
-    own_prior = _prior_species(ids, cutoff, user_id=username)
-    own_new = [sid for sid in ids if sid not in own_prior]
-    if not own_new:
-        return {sid: "" for sid in ids}
-
-    area_prior = set()
+    has_area = bool(place_ids or geometry_json)
+    with ThreadPoolExecutor(max_workers=min(4, 1 + len(place_ids))) as pool:
+        own_job = pool.submit(_prior_species, ids, cutoff, user_id=username)
+        place_jobs = [pool.submit(_prior_species, ids, cutoff, place_id=pid)
+                      for pid in place_ids]
+        own_prior = own_job.result()
+        area_prior = set().union(*(job.result() for job in place_jobs))
     area_uncertain = set()
-    if place_ids:
-        with ThreadPoolExecutor(max_workers=min(4, len(place_ids))) as pool:
-            jobs = [pool.submit(_prior_species, own_new, cutoff, place_id=pid)
-                    for pid in place_ids]
-            area_prior = set().union(*(job.result() for job in jobs))
     if geometry_json:
         import json
         geometry = json.loads(geometry_json)
@@ -312,28 +309,38 @@ def batch_stars(rows, username, start, end, place_ids=(), geometry_json=""):
             return sid, bool(item), complete
         with ThreadPoolExecutor(max_workers=4) as pool:
             for sid, found, complete in pool.map(
-                check_prior_polygon, (sid for sid in own_new if sid not in area_prior)
+                check_prior_polygon, (sid for sid in ids if sid not in area_prior)
             ):
                 if found:
                     area_prior.add(sid)
                 elif not complete:
                     area_uncertain.add(sid)
 
-    # A prior record in the selected area rules out a worldwide first.
-    global_candidates = [sid for sid in own_new if sid not in area_prior]
+    # Either an earlier own or area record proves an earlier global record.
+    global_candidates = [sid for sid in ids if sid not in own_prior and sid not in area_prior]
     global_prior = _prior_species(global_candidates, cutoff) if global_candidates else set()
 
     def check_one(row):
         sid = int(row["species_id"])
         observed = row["obs_ids"]
-        # A global first is necessarily an own first and an area first.
-        if sid in own_prior:
-            return sid, ""
-        if sid not in area_prior and sid not in global_prior:
+        global_new = False
+        if sid not in own_prior and sid not in area_prior and sid not in global_prior:
             candidate = _first({"taxon_id": sid, "d2": end})
             if candidate and candidate.get("id") in observed:
-                return sid, "🔴"
-        if (place_ids or geometry_json) and sid not in area_prior and sid not in area_uncertain:
+                global_new = True
+
+        own_new = global_new
+        if not own_new and sid not in own_prior:
+            if not has_area:
+                own_new = True
+            else:
+                candidate = _first({"taxon_id": sid, "user_id": username, "d2": end})
+                own_new = bool(candidate and candidate.get("id") in observed)
+
+        area_new = None if not has_area else global_new
+        if has_area and not global_new and sid in area_prior:
+            area_new = False
+        elif has_area and not global_new and sid not in area_uncertain:
             first_area = []
             for pid in place_ids:
                 candidate = _first({"taxon_id": sid, "place_id": pid, "d2": end})
@@ -347,15 +354,13 @@ def batch_stars(rows, username, start, end, place_ids=(), geometry_json=""):
                     first_area.append(candidate)
             if complete and first_area:
                 earliest = min(first_area, key=lambda o: (o.get("observed_on") or "9999", o["id"]))
-                if earliest["id"] in observed:
-                    return sid, "🟠"
-        if sid not in own_prior:
-            if not place_ids and not geometry_json:
-                return sid, "🟡"
-            candidate = _first({"taxon_id": sid, "user_id": username, "d2": end})
-            if candidate and candidate.get("id") in observed:
-                return sid, "🟡"
-        return sid, ""
+                area_new = earliest["id"] in observed
+            elif not complete:
+                area_new = None
+            else:
+                area_new = False
+        return sid, {"own": own_new, "area": area_new, "global": global_new,
+                     "star": "🔴" if global_new else "🟠" if area_new else "🟡" if own_new else ""}
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         return dict(pool.map(check_one, rows))

@@ -37,7 +37,7 @@ st.markdown("""<style>
 @media(max-width:540px){.species-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:.55rem}.species-photo,.photo-empty{height:130px}.species-body{padding:.58rem}.species-name{font-size:.95rem}}
 </style>""", unsafe_allow_html=True)
 
-for key, value in {"places": [], "geometry": None, "area_name": "", "trip": None, "query": None, "stars": {}, "place_results": [], "show_map": False}.items():
+for key, value in {"places": [], "geometry": None, "area_name": "", "trip": None, "query": None, "novelty": {}, "place_results": [], "show_map": False}.items():
     if key not in st.session_state:
         st.session_state[key] = value
 
@@ -136,7 +136,7 @@ if go:
                 st.session_state.query = {"username": username, "start": start.isoformat(), "end": end.isoformat(),
                                           "places": places, "geometry": json.dumps(geometry, sort_keys=True) if geometry else "",
                                           "observation_total": len(obs)}
-                st.session_state.stars = {}
+                st.session_state.novelty = {}
                 st.session_state.bulk_failed = False
                 st.session_state.slow_mode = False
                 status.update(label="Tripreport gereed", state="complete")
@@ -153,7 +153,7 @@ def card_html(current):
         scientific = html.escape(str(row["Wetenschappelijke naam"]))
         url = html.escape(str(row["iNaturalist"]), quote=True)
         photo = html.escape(str(row["Foto"] or ""), quote=True)
-        star = st.session_state.stars.get(sid, "")
+        star = (st.session_state.novelty.get(sid) or {}).get("star", "")
         rg = bool(row.get("Trip RG", False))
         outline = " rg" if star == "🟡" and rg else ""
         label = colors[star][1] + (" · rode rand: Research Grade tijdens deze reis" if outline else "") if star in colors else ""
@@ -165,11 +165,11 @@ def card_html(current):
     return '<div class="species-grid">' + ''.join(cards) + '</div>'
 
 
-def summary_html(all_species, meta, stars):
+def summary_html(all_species, meta, novelty):
     ids = all_species["species_id"]
     has_area = bool(meta["places"] or meta["geometry"])
-    counts = summary_counts(stars, ids, has_area)
-    pending = any(int(sid) not in stars for sid in ids)
+    counts = summary_counts(novelty, ids, has_area)
+    pending = any(int(sid) not in novelty for sid in ids)
     def display(value):
         if value is None:
             return "—"
@@ -192,8 +192,8 @@ def summary_html(all_species, meta, stars):
 def show_progressive_grid(current, all_species, meta, summary_slot):
     """Keep the cards in place; update only the progress bar until finished."""
     target = [int(x) for x in all_species["species_id"]]
-    remaining = [row for _, row in all_species.iterrows() if int(row["species_id"]) not in st.session_state.stars]
-    summary_slot.markdown(summary_html(all_species, meta, st.session_state.stars), unsafe_allow_html=True)
+    remaining = [row for _, row in all_species.iterrows() if int(row["species_id"]) not in st.session_state.novelty]
+    summary_slot.markdown(summary_html(all_species, meta, st.session_state.novelty), unsafe_allow_html=True)
     done = len(target) - len(remaining)
     progress = st.empty()
     progress.progress(done / len(target), text=f"Sterren gecontroleerd: {done} van {len(target)}")
@@ -217,23 +217,24 @@ def show_progressive_grid(current, all_species, meta, summary_slot):
         try:
             if st.session_state.get("slow_mode"):
                 checked = {int(row["species_id"]): star_for(row["obs_ids"], first_record(
-                    int(row["species_id"]), meta["username"], meta["end"], meta["places"], meta["geometry"])) for row in batch}
+                    int(row["species_id"]), meta["username"], meta["end"], meta["places"], meta["geometry"]),
+                    bool(meta["places"] or meta["geometry"])) for row in batch}
             else:
                 checked = batch_stars(batch, meta["username"], meta["start"], meta["end"], meta["places"], meta["geometry"])
-            st.session_state.stars.update(checked)
+            st.session_state.novelty.update(checked)
         except Exception as exc:
             if not st.session_state.get("slow_mode"):
                 st.session_state.bulk_failed = True
                 st.warning(f"Snelle controle gestopt: {exc}. Kies hieronder een vervolg.")
             else:
                 for row in batch:
-                    st.session_state.stars[int(row["species_id"])] = "?"
+                    st.session_state.novelty[int(row["species_id"])] = {"own": None, "area": None, "global": None, "star": "?"}
             break
         done = len(target) - len(remaining) + min(offset + size, len(remaining))
         progress.progress(done / len(target), text=f"Sterren gecontroleerd: {done} van {len(target)}")
     # One card update after the calculation; no timed redraws or page jumps.
     grid.markdown(card_html(current), unsafe_allow_html=True)
-    summary_slot.markdown(summary_html(all_species, meta, st.session_state.stars), unsafe_allow_html=True)
+    summary_slot.markdown(summary_html(all_species, meta, st.session_state.novelty), unsafe_allow_html=True)
 
 
 frame = st.session_state.trip
@@ -244,18 +245,20 @@ if frame is not None and meta:
     st.caption(f"{meta['start']} t/m {meta['end']} · {len(frame):,} soorten · {int(frame['Waarnemingen in gebied'].sum()) if len(frame) else 0:,} waarnemingen")
     summary_slot = st.empty()
     if frame.empty:
-        summary_slot.markdown(summary_html(frame, meta, st.session_state.stars), unsafe_allow_html=True)
+        summary_slot.markdown(summary_html(frame, meta, st.session_state.novelty), unsafe_allow_html=True)
         st.info("Geen op soort geïdentificeerde waarnemingen gevonden binnen deze selectie.")
     else:
         sort_by = st.selectbox("Volgorde foto's", ["Taxonomie (rijk → soort)", "Aantal waarnemingen"], index=0)
         ordered = sort_species_overview(frame, sort_by)
         maximum = len(ordered)
-        shown = st.slider("Aantal soorten tonen", 1, maximum, min(50, maximum)) if maximum > 10 else maximum
+        shown = st.slider("Aantal soorten tonen", 1, maximum, maximum) if maximum > 10 else maximum
         current = ordered.head(shown)
         st.markdown('<div class="legend"><span><b class="yellow">★</b> Mijn eerste waarneming</span><span><b class="yellow rg">★</b> Eigen eerste met Research Grade tijdens reis</span><span><b class="orange">★</b> Eerste in gekozen gebied</span><span><b class="red">★</b> Eerste op iNaturalist</span></div>', unsafe_allow_html=True)
-        st.caption("Per soort verschijnt de hoogste toepasselijke ster (rood > oranje > geel). De controle kijkt eerst naar jouw eerdere waarnemingen, daarna naar eerdere gebiedswaarnemingen en pas daarna wereldwijd. Bij een te groot historisch kaartgebied wordt de oranje ster overgeslagen.")
+        st.caption("Per soort verschijnt de hoogste toepasselijke ster (rood > oranje > geel). Een eerste eigen waarneming en een eerste waarneming in het gebied worden onafhankelijk gecontroleerd. Een eerdere eigen of gebiedswaarneming sluit een wereldwijde eerste uit. Bij een te groot historisch kaartgebied wordt de oranje ster overgeslagen.")
         show_progressive_grid(current, ordered, meta, summary_slot)
         export = ordered.drop(columns=["obs_ids", "Foto"], errors="ignore").copy()
-        export["Ster"] = export["species_id"].map(st.session_state.stars).fillna("").map({"🟡":"Eigen eerste", "🟠":"Eerste in gebied", "🔴":"Eerste iNaturalist", "?":"Niet gecontroleerd"}).fillna("")
+        export["Ster"] = export["species_id"].map(lambda sid: (st.session_state.novelty.get(int(sid)) or {}).get("star", ""))
+        for column, flag in [("Nieuw voor mij", "own"), ("Nieuw in gebied", "area"), ("Nieuw op iNaturalist", "global")]:
+            export[column] = export["species_id"].map(lambda sid: (st.session_state.novelty.get(int(sid)) or {}).get(flag))
         safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", meta["username"])
         st.download_button("⬇️ Soortenlijst als CSV", export.to_csv(index=False).encode("utf-8-sig"), f"tripreport_{safe}_{meta['start']}_{meta['end']}.csv", "text/csv")
