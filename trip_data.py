@@ -254,6 +254,18 @@ def star_for(ids, first):
     return ""
 
 
+def summary_counts(stars, species_ids, has_area):
+    """Cumulative first-record totals over the complete trip species list."""
+    values = [stars.get(int(sid)) for sid in species_ids]
+    unresolved = sum(value is None or value == "?" for value in values)
+    return {
+        "own": sum(value in {"🟡", "🟠", "🔴"} for value in values),
+        "area": sum(value in {"🟠", "🔴"} for value in values) if has_area else None,
+        "global": sum(value == "🔴" for value in values),
+        "unresolved": unresolved,
+    }
+
+
 def _prior_species(ids, cutoff, **filters):
     """Get prior species in one aggregated request per small taxon batch."""
     if not ids:
