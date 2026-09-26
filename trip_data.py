@@ -73,6 +73,16 @@ def normalize_geometry(geometry):
         return None
 
 
+def _compact_observation(o):
+    """Keep only fields used by trip grouping and personal first checks."""
+    t = o.get("taxon") or {}
+    photos = o.get("photos") or []
+    return {"id": o["id"], "observed_on": o.get("observed_on"),
+            "geojson": o.get("geojson"), "quality_grade": o.get("quality_grade"),
+            "taxon": {k: t.get(k) for k in ("id", "rank", "name", "preferred_common_name", "ancestor_ids")},
+            "photos": [{k: photos[0].get(k) for k in ("medium_url", "url")}] if photos else []}
+
+
 def _pages(params):
     """Fetch all pages. Split dense date windows so the API's 10k cap is explicit."""
     first = get("/observations", {**params, "page": 1, "per_page": 200})
@@ -85,13 +95,14 @@ def _pages(params):
         a = _pages({**params, "d2": mid.isoformat()})
         b = _pages({**params, "d1": (mid + timedelta(days=1)).isoformat()})
         return a + b
-    pages = [first.get("results", [])]
+    pages = [[_compact_observation(o) for o in first.get("results", [])]]
     count = math.ceil(total / 200)
     if count > 1:
         with ThreadPoolExecutor(max_workers=min(4, count - 1)) as pool:
             jobs = {pool.submit(get, "/observations", {**params, "page": page, "per_page": 200}): page
                     for page in range(2, count + 1)}
-            fetched = {page: future.result().get("results", []) for future, page in jobs.items()}
+            fetched = {page: [_compact_observation(o) for o in future.result().get("results", [])]
+                       for future, page in jobs.items()}
         pages += [fetched[page] for page in range(2, count + 1)]
     return [row for page in pages for row in page]
 

@@ -26,6 +26,8 @@ De vergelijking gebruikt de waarnemingsdatum (`observed_on`) en controleert het 
 
 Bij een getekend gebied worden observaties in de begrenzende rechthoek opgehaald en daarna tegen de exacte veelhoek getoetst. Alleen waarnemingen met openbare coördinaten kunnen daarin worden opgenomen. Voor een historische veelhoek met meer dan 10.000 kandidaatwaarnemingen per soort wordt geen oranje ster toegekend; geel en rood blijven beschikbaar. Een drukke reisdag met meer dan 10.000 passende waarnemingen vraagt om een kleinere gebieds- of soortselectie. iNaturalist kan afgeschermde locaties anders behandelen dan openbare kaartcoördinaten.
 
+Bij het ophalen bewaart de app per waarneming alleen de velden die voor het tripreport nodig zijn. Dit beperkt het geheugengebruik bij grotere reizen.
+
 ## Installatie
 
 Pak deze map uit en plaats alle Python-bestanden, `requirements.txt` en `README.md` op het hoogste niveau van je repository. De browsercomponent zit ook in `app.py`; de meegeleverde map `local_store_component` is optioneel. Maak in Streamlit Community Cloud een app met `app.py` als startbestand, of start lokaal:
