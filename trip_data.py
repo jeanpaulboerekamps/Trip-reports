@@ -139,16 +139,62 @@ def species_frame(observations):
         row = rows.setdefault(sid, {"species_id": sid, "Engelse naam": taxon.get("preferred_common_name") or taxon.get("name") or t.get("name") or "Onbekend",
                                     "Wetenschappelijke naam": taxon.get("name") or t.get("name") or "",
                                     "Waarnemingen in gebied": 0, "Foto": taxon.get("photo") or t.get("photo") or "",
-                                    "iNaturalist": f"https://www.inaturalist.org/taxa/{sid}", "obs_ids": set()})
+                                    "iNaturalist": f"https://www.inaturalist.org/taxa/{sid}", "obs_ids": set(),
+                                    "Trip RG": False})
         row["Waarnemingen in gebied"] += 1
         row["obs_ids"].add(int(o["id"]))
+        row["Trip RG"] = row["Trip RG"] or o.get("quality_grade") == "research"
         photos = o.get("photos") or []
         if photos and not row["Foto"]:
             row["Foto"] = photos[0].get("url", "").replace("square", "medium")
     if not rows:
-        return pd.DataFrame(columns=["species_id", "Engelse naam", "Wetenschappelijke naam", "Waarnemingen in gebied", "Foto", "iNaturalist", "obs_ids"])
+        return pd.DataFrame(columns=["species_id", "Engelse naam", "Wetenschappelijke naam", "Waarnemingen in gebied", "Foto", "iNaturalist", "obs_ids", "Trip RG"])
     frame = pd.DataFrame(rows.values())
     return enrich_species_taxonomy(frame, lookup)
+
+
+def personal_species_counts(username, species_ids):
+    """Count all of the observer's records for trip species with a few pages."""
+    wanted = {int(x) for x in species_ids}
+    if not wanted:
+        return {}
+
+    def page(params, number):
+        return get("/observations/species_counts", {**params, "page": number, "per_page": 500})
+
+    def collect(params):
+        first = page(params, 1)
+        total = int(first.get("total_results") or 0)
+        if total > 10000:
+            raise RuntimeError("Meer dan 10.000 taxa in de persoonlijke soortenlijst")
+        count = math.ceil(total / 500)
+        results = list(first.get("results", []))
+        if count > 1:
+            with ThreadPoolExecutor(max_workers=min(4, count - 1)) as pool:
+                pages = list(pool.map(lambda n: page(params, n), range(2, count + 1)))
+            results.extend(row for data in pages for row in data.get("results", []))
+        return results
+
+    try:
+        rows = collect({"user_id": username, "locale": "en"})
+    except RuntimeError as exc:
+        if "10.000 taxa" not in str(exc):
+            raise
+        rows = []
+        # Only extremely long personal life lists need targeted requests.
+        ids = sorted(wanted)
+        for start in range(0, len(ids), 40):
+            rows.extend(collect({"user_id": username,
+                                 "taxon_ids": ",".join(map(str, ids[start:start + 40]))}))
+    counts = {sid: 0 for sid in wanted}
+    for item in rows:
+        taxon = item.get("taxon") or {}
+        lineage = {int(x) for x in [taxon.get("id"), *(taxon.get("ancestor_ids") or [])]
+                   if x and str(x).isdigit()}
+        matching = wanted & lineage
+        if len(matching) == 1:
+            counts[next(iter(matching))] += int(item.get("count") or 0)
+    return counts
 
 
 def _first(params, geometry=None):

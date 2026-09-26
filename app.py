@@ -11,7 +11,7 @@ from folium.plugins import Draw
 from streamlit_folium import st_folium
 
 from taxonomy import sort_species_overview
-from trip_data import batch_stars, first_record, normalize_geometry, search_places, species_frame, star_for, trip_observations
+from trip_data import batch_stars, first_record, normalize_geometry, personal_species_counts, search_places, species_frame, star_for, trip_observations
 
 st.set_page_config(page_title="Tripreport Verkenner", page_icon="🧭", layout="wide")
 st.markdown("""<style>
@@ -24,10 +24,11 @@ st.markdown("""<style>
 .photo-empty{display:flex;align-items:center;justify-content:center;font-size:2rem}
 .star{position:absolute;right:10px;top:8px;font-size:2rem;line-height:1;text-shadow:0 1px 5px #343a32,0 0 2px #fff}
 .star.red{color:#e3342f}.star.orange{color:#f28b24}.star.yellow{color:#f0cc24}
+.star.yellow.rg{-webkit-text-stroke:1.6px #17884a;paint-order:stroke fill}
 .species-body{padding:.8rem}.species-name{font-weight:750;line-height:1.2}.scientific{font-style:italic;opacity:.72;font-size:.9rem;margin:.18rem 0 .65rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pill{font-size:.8rem;background:rgba(58,130,79,.13);border-radius:30px;padding:.25rem .5rem}
 .legend{display:flex;gap:1rem;flex-wrap:wrap;margin:.7rem 0 1.1rem}.legend span{font-size:.92rem}
-.legend b{font-size:1.35rem;vertical-align:middle}.legend .red{color:#e3342f}.legend .orange{color:#f28b24}.legend .yellow{color:#e3b51e}
+.legend b{font-size:1.35rem;vertical-align:middle}.legend .red{color:#e3342f}.legend .orange{color:#f28b24}.legend .yellow{color:#e3b51e}.legend .yellow.rg{-webkit-text-stroke:1.3px #17884a;paint-order:stroke fill}
 @media(max-width:540px){.species-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:.55rem}.species-photo,.photo-empty{height:130px}.species-body{padding:.58rem}.species-name{font-size:.95rem}}
 </style>""", unsafe_allow_html=True)
 
@@ -118,6 +119,14 @@ if go:
                 obs = trip_observations(username, start, end, places, geometry)
                 st.write(f"{len(obs):,} openbare waarnemingen gevonden; soorten en taxonomie opbouwen…")
                 frame = species_frame(obs)
+                if not frame.empty:
+                    st.write("Je totale aantallen per soort ophalen…")
+                    try:
+                        counts = personal_species_counts(username, frame["species_id"])
+                        frame["Mijn waarnemingen wereldwijd"] = frame["species_id"].map(counts).fillna(0).astype(int)
+                    except Exception as exc:
+                        frame["Mijn waarnemingen wereldwijd"] = pd.NA
+                        st.warning(f"De totale aantallen konden niet worden geladen: {exc}")
                 st.session_state.trip = frame
                 st.session_state.query = {"username": username, "start": start.isoformat(), "end": end.isoformat(),
                                           "places": places, "geometry": json.dumps(geometry, sort_keys=True) if geometry else ""}
@@ -139,45 +148,59 @@ def card_html(current):
         url = html.escape(str(row["iNaturalist"]), quote=True)
         photo = html.escape(str(row["Foto"] or ""), quote=True)
         star = st.session_state.stars.get(sid, "")
-        badge = f'<span class="star {colors[star][0]}" title="{colors[star][1]}" aria-label="{colors[star][1]}">★</span>' if star in colors else ('<span class="star" title="Controle niet gelukt">?</span>' if star == '?' else '')
+        rg = bool(row.get("Trip RG", False))
+        outline = " rg" if star == "🟡" and rg else ""
+        label = colors[star][1] + (" · Research Grade tijdens deze reis" if outline else "") if star in colors else ""
+        badge = f'<span class="star {colors[star][0]}{outline}" title="{label}" aria-label="{label}">★</span>' if star in colors else ('<span class="star" title="Controle niet gelukt">?</span>' if star == '?' else '')
         picture = f'<img class="species-photo" src="{photo}" alt="{name}" loading="lazy">' if photo else '<div class="photo-empty">🌿</div>'
-        cards.append(f'<article class="species-card"><a href="{url}" target="_blank" rel="noopener"><div class="photo-wrap">{picture}{badge}</div><div class="species-body"><div class="species-name">{name}</div><div class="scientific">{scientific}</div><span class="pill">{int(row["Waarnemingen in gebied"]):,} waarnemingen</span></div></a></article>')
+        total = row.get("Mijn waarnemingen wereldwijd", pd.NA)
+        total_text = f'{int(total):,} totaal' if pd.notna(total) else 'Totaal onbekend'
+        cards.append(f'<article class="species-card"><a href="{url}" target="_blank" rel="noopener"><div class="photo-wrap">{picture}{badge}</div><div class="species-body"><div class="species-name">{name}</div><div class="scientific">{scientific}</div><span class="pill">{int(row["Waarnemingen in gebied"]):,} tijdens reis</span> <span class="pill">{total_text}</span></div></a></article>')
     return '<div class="species-grid">' + ''.join(cards) + '</div>'
 
 
-@st.fragment(run_every="1s")
 def show_progressive_grid(current, meta):
-    """Show cards first; add stars a few taxa at a time without blocking the page."""
+    """Keep the cards in place; update only the progress bar until finished."""
     target = [int(x) for x in current["species_id"]]
     remaining = [row for _, row in current.iterrows() if int(row["species_id"]) not in st.session_state.stars]
     done = len(target) - len(remaining)
-    st.caption(f"Sterren gecontroleerd: {done} van {len(target)}" if remaining else f"Sterren gecontroleerd: {len(target)} van {len(target)}")
+    progress = st.empty()
+    progress.progress(done / len(target), text=f"Sterren gecontroleerd: {done} van {len(target)}")
     grid = st.empty()
     grid.markdown(card_html(current), unsafe_allow_html=True)
     if not remaining:
         return
     if st.session_state.get("bulk_failed") and not st.session_state.get("slow_mode"):
-        st.warning("De snelle groepscontrole is mislukt. De foto's blijven zichtbaar; probeer de controle opnieuw of kies de tragere controle per soort.")
+        st.warning("De snelle groepscontrole is mislukt. Probeer het opnieuw of start de tragere controle per soort.")
         retry, slow = st.columns(2)
         if retry.button("Snelle controle opnieuw proberen"):
             st.session_state.bulk_failed = False
+            st.rerun()
         if slow.button("Controle per soort starten"):
             st.session_state.slow_mode = True
+            st.rerun()
         return
-    batch = remaining[:40 if not st.session_state.get("slow_mode") else 2]
-    try:
-        if st.session_state.get("slow_mode"):
-            checked = {int(row["species_id"]): star_for(row["obs_ids"], first_record(
-                int(row["species_id"]), meta["username"], meta["end"], meta["places"], meta["geometry"])) for row in batch}
-        else:
-            checked = batch_stars(batch, meta["username"], meta["start"], meta["end"], meta["places"], meta["geometry"])
-        st.session_state.stars.update(checked)
-    except Exception:
-        if not st.session_state.get("slow_mode"):
-            st.session_state.bulk_failed = True
-        else:
-            for row in batch:
-                st.session_state.stars[int(row["species_id"])] = "?"
+    size = 2 if st.session_state.get("slow_mode") else 40
+    for offset in range(0, len(remaining), size):
+        batch = remaining[offset:offset + size]
+        try:
+            if st.session_state.get("slow_mode"):
+                checked = {int(row["species_id"]): star_for(row["obs_ids"], first_record(
+                    int(row["species_id"]), meta["username"], meta["end"], meta["places"], meta["geometry"])) for row in batch}
+            else:
+                checked = batch_stars(batch, meta["username"], meta["start"], meta["end"], meta["places"], meta["geometry"])
+            st.session_state.stars.update(checked)
+        except Exception as exc:
+            if not st.session_state.get("slow_mode"):
+                st.session_state.bulk_failed = True
+                st.warning(f"Snelle controle gestopt: {exc}. Kies hieronder een vervolg.")
+            else:
+                for row in batch:
+                    st.session_state.stars[int(row["species_id"])] = "?"
+            break
+        done = len(target) - len(remaining) + min(offset + size, len(remaining))
+        progress.progress(done / len(target), text=f"Sterren gecontroleerd: {done} van {len(target)}")
+    # One card update after the calculation; no timed redraws or page jumps.
     grid.markdown(card_html(current), unsafe_allow_html=True)
 
 
@@ -195,7 +218,7 @@ if frame is not None and meta:
         maximum = len(ordered)
         shown = st.slider("Aantal soorten tonen", 1, maximum, min(50, maximum)) if maximum > 10 else maximum
         current = ordered.head(shown)
-        st.markdown('<div class="legend"><span><b class="yellow">★</b> Mijn eerste waarneming</span><span><b class="orange">★</b> Eerste in gekozen gebied</span><span><b class="red">★</b> Eerste op iNaturalist</span></div>', unsafe_allow_html=True)
+        st.markdown('<div class="legend"><span><b class="yellow">★</b> Mijn eerste waarneming</span><span><b class="yellow rg">★</b> Eigen eerste met Research Grade tijdens reis</span><span><b class="orange">★</b> Eerste in gekozen gebied</span><span><b class="red">★</b> Eerste op iNaturalist</span></div>', unsafe_allow_html=True)
         st.caption("Per soort verschijnt de hoogste toepasselijke ster (rood > oranje > geel). De controle kijkt eerst naar jouw eerdere waarnemingen, daarna naar eerdere gebiedswaarnemingen en pas daarna wereldwijd. Bij een te groot historisch kaartgebied wordt de oranje ster overgeslagen.")
         show_progressive_grid(current, meta)
         export = ordered.drop(columns=["obs_ids", "Foto"], errors="ignore").copy()
