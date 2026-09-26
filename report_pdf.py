@@ -78,13 +78,14 @@ def _draw_card(c, row, novelty, photo_bytes, x, y, width, height):
         except Exception:
             pass
     record = novelty.get(int(row["species_id"])) or {}
-    star = record.get("star")
-    star_colors = {"🟡": colors.HexColor("#f0c824"),
-                   "🟠": colors.HexColor("#ef8a24"),
-                   "🔴": colors.HexColor("#df3f39")}
-    if star in star_colors:
-        _draw_star(c, x + width - 17, y + height - 17, star_colors[star],
-                   colors.HexColor("#d22e32") if star == "🟡" and row.get("Trip RG") else None)
+    star_colors = (("own", colors.HexColor("#f0c824")),
+                   ("area", colors.HexColor("#ef8a24")),
+                   ("global", colors.HexColor("#df3f39")))
+    active = [(flag, color) for flag, color in star_colors if record.get(flag)]
+    for i, (flag, color) in enumerate(active):
+        _draw_star(c, x + width - 17 - (len(active) - 1 - i) * 21,
+                   y + height - 17, color,
+                   colors.HexColor("#d22e32") if flag == "own" and row.get("Trip RG") else None)
     tx = x + 9
     c.setFillColor(INK)
     c.setFont("Helvetica-Bold", 9)

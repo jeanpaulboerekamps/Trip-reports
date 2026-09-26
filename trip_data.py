@@ -119,6 +119,27 @@ def trip_observations(username, start, end, place_ids=(), geometry=None):
     return sorted(collected.values(), key=lambda o: (o.get("observed_on") or "", o["id"]))
 
 
+def own_firsts_in_window(username, start, end, species_ids, trip_observations_all=None):
+    """Find personal first IDs for trip taxa with one paged date-window search.
+
+    The search is worldwide even when the report has a region: an earlier
+    observation outside that region must take precedence over a trip record.
+    """
+    wanted = {int(sid) for sid in species_ids}
+    observations = (trip_observations_all if trip_observations_all is not None else
+                    trip_observations(username, start, end))
+    firsts = {}
+    for observation in observations:
+        taxon = observation.get("taxon") or {}
+        lineage = {int(x) for x in [taxon.get("id"), *(taxon.get("ancestor_ids") or [])]
+                   if x and str(x).isdigit()}
+        key = (observation.get("observed_on") or "9999", int(observation["id"]))
+        for sid in wanted & lineage:
+            if sid not in firsts or key < firsts[sid][0]:
+                firsts[sid] = (key, int(observation["id"]))
+    return {sid: value[1] for sid, value in firsts.items()}
+
+
 def _compact_taxon(t):
     t = t or {}
     return {"id": t.get("id"), "rank": t.get("rank"), "name": t.get("name"),
@@ -300,7 +321,7 @@ def _prior_species(ids, cutoff, **filters):
     return present
 
 
-def batch_stars(rows, username, start, end, place_ids=(), geometry_json=""):
+def batch_stars(rows, username, start, end, place_ids=(), geometry_json="", own_first_ids=None):
     """Check personal and regional novelty independently, then global novelty."""
     ids = [int(row["species_id"]) for row in rows]
     cutoff = (date.fromisoformat(start) - timedelta(days=1)).isoformat()
@@ -342,7 +363,9 @@ def batch_stars(rows, username, start, end, place_ids=(), geometry_json=""):
 
         own_new = global_new
         if not own_new and sid not in own_prior:
-            if not has_area:
+            if own_first_ids is not None and sid in own_first_ids:
+                own_new = own_first_ids.get(sid) in observed
+            elif not has_area:
                 own_new = True
             else:
                 candidate = _first({"taxon_id": sid, "user_id": username, "d2": end})

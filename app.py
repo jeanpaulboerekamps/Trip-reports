@@ -12,7 +12,7 @@ from streamlit_folium import st_folium
 
 from report_pdf import make_trip_pdf
 from taxonomy import sort_species_overview
-from trip_data import batch_stars, exact_place_match, first_record, normalize_geometry, personal_species_counts, search_places, species_frame, star_for, summary_counts, trip_observations
+from trip_data import batch_stars, exact_place_match, first_record, normalize_geometry, own_firsts_in_window, personal_species_counts, search_places, species_frame, star_for, summary_counts, trip_observations
 
 st.set_page_config(page_title="Tripreport Verkenner", page_icon="🧭", layout="wide")
 st.markdown("""<style>
@@ -21,9 +21,9 @@ st.markdown("""<style>
 .species-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:1rem;margin:.8rem 0 1rem}
 .species-card{border:1px solid #cad6cd;border-radius:13px;overflow:hidden;background:var(--secondary-background-color)}
 .species-card a{color:inherit;text-decoration:none}.photo-wrap{position:relative}
-.species-photo,.photo-empty{height:170px;width:100%;object-fit:cover;display:block;background:#e4ede7}
+.species-photo,.photo-empty{height:170px;width:100%;object-fit:contain;display:block;background:#e4ede7}
 .photo-empty{display:flex;align-items:center;justify-content:center;font-size:2rem}
-.star{position:absolute;right:10px;top:8px;font-size:2rem;line-height:1;text-shadow:0 1px 5px #343a32,0 0 2px #fff}
+.stars{position:absolute;right:10px;top:8px;display:flex;gap:3px;align-items:center}.star{font-size:2rem;line-height:1;text-shadow:0 1px 5px #343a32,0 0 2px #fff}
 .star.red{color:#e3342f}.star.orange{color:#f28b24}.star.yellow{color:#f0cc24}
 .star.yellow.rg{-webkit-text-stroke:1.8px #d22e32;paint-order:stroke fill}
 .species-body{padding:.8rem}.species-name{font-weight:750;line-height:1.2}.scientific{font-style:italic;opacity:.72;font-size:.9rem;margin:.18rem 0 .65rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -154,6 +154,7 @@ if go:
                                           "observation_total": len(obs),
                                           "unidentified_total": len(obs) - int(frame["Waarnemingen in gebied"].sum())}
                 st.session_state.novelty = {}
+                st.session_state.own_first_ids = None
                 st.session_state.pdf_bytes = None
                 st.session_state.pdf_key = None
                 st.session_state.bulk_failed = False
@@ -172,11 +173,17 @@ def card_html(current):
         scientific = html.escape(str(row["Wetenschappelijke naam"]))
         url = html.escape(str(row["iNaturalist"]), quote=True)
         photo = html.escape(str(row["Foto"] or ""), quote=True)
-        star = (st.session_state.novelty.get(sid) or {}).get("star", "")
+        record = st.session_state.novelty.get(sid) or {}
         rg = bool(row.get("Trip RG", False))
-        outline = " rg" if star == "🟡" and rg else ""
-        label = colors[star][1] + (" · rode rand: Research Grade tijdens deze reis" if outline else "") if star in colors else ""
-        badge = f'<span class="star {colors[star][0]}{outline}" title="{label}" aria-label="{label}">★</span>' if star in colors else ('<span class="star" title="Controle niet gelukt">?</span>' if star == '?' else '')
+        badges = []
+        for flag, symbol in (("own", "🟡"), ("area", "🟠"), ("global", "🔴")):
+            if record.get(flag):
+                outline = " rg" if flag == "own" and rg else ""
+                label = colors[symbol][1] + (" · rode rand: Research Grade tijdens deze reis" if outline else "")
+                badges.append(f'<span class="star {colors[symbol][0]}{outline}" title="{label}" aria-label="{label}">★</span>')
+        if not badges and record.get("star") == "?":
+            badges.append('<span class="star" title="Controle niet gelukt">?</span>')
+        badge = '<div class="stars">' + ''.join(badges) + '</div>' if badges else ''
         picture = f'<img class="species-photo" src="{photo}" alt="{name}" loading="lazy">' if photo else '<div class="photo-empty">🌿</div>'
         total = row.get("Mijn waarnemingen wereldwijd", pd.NA)
         total_text = f'{int(total):,} totaal' if pd.notna(total) else 'Totaal onbekend'
@@ -231,6 +238,13 @@ def show_progressive_grid(current, all_species, meta, summary_slot):
             st.session_state.slow_mode = True
             st.rerun()
         return
+    if not st.session_state.get("slow_mode") and st.session_state.get("own_first_ids") is None:
+        try:
+            st.session_state.own_first_ids = own_firsts_in_window(
+                meta["username"], date.fromisoformat(meta["start"]),
+                date.fromisoformat(meta["end"]), target)
+        except Exception:
+            st.session_state.own_first_ids = {}  # The per-species fallback remains available.
     size = 2 if st.session_state.get("slow_mode") else 40
     for offset in range(0, len(remaining), size):
         batch = remaining[offset:offset + size]
@@ -240,7 +254,7 @@ def show_progressive_grid(current, all_species, meta, summary_slot):
                     int(row["species_id"]), meta["username"], meta["end"], meta["places"], meta["geometry"]),
                     bool(meta["places"] or meta["geometry"])) for row in batch}
             else:
-                checked = batch_stars(batch, meta["username"], meta["start"], meta["end"], meta["places"], meta["geometry"])
+                checked = batch_stars(batch, meta["username"], meta["start"], meta["end"], meta["places"], meta["geometry"], st.session_state.own_first_ids)
             st.session_state.novelty.update(checked)
         except Exception as exc:
             if not st.session_state.get("slow_mode"):
@@ -278,7 +292,7 @@ if frame is not None and meta:
         shown = st.slider("Aantal soorten tonen", 1, maximum, maximum) if maximum > 10 else maximum
         current = ordered.head(shown)
         st.markdown('<div class="legend"><span><b class="yellow">★</b> Mijn eerste waarneming</span><span><b class="yellow rg">★</b> Eigen eerste met Research Grade tijdens reis</span><span><b class="orange">★</b> Eerste in gekozen gebied</span><span><b class="red">★</b> Eerste op iNaturalist</span></div>', unsafe_allow_html=True)
-        st.caption("Per soort verschijnt de hoogste toepasselijke ster (rood > oranje > geel). Een eerste eigen waarneming en een eerste waarneming in het gebied worden onafhankelijk gecontroleerd. Een eerdere eigen of gebiedswaarneming sluit een wereldwijde eerste uit. Bij een te groot historisch kaartgebied wordt de oranje ster overgeslagen.")
+        st.caption("Alle toepasselijke sterren staan naast elkaar. Eigen en gebiedseerste worden onafhankelijk gecontroleerd. Bij een te groot historisch kaartgebied kan de oranje ster onbekend blijven.")
         download_controls = st.empty()
         show_progressive_grid(current, ordered, meta, summary_slot)
         export = ordered.drop(columns=["obs_ids", "Foto"], errors="ignore").copy()
