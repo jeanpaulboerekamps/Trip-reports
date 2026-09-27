@@ -83,7 +83,7 @@ def _compact_observation(o):
             "photos": [{k: photos[0].get(k) for k in ("medium_url", "url")}] if photos else []}
 
 
-def _pages(params):
+def _pages(params, on_page=None):
     """Fetch all pages. Split dense date windows so the API's 10k cap is explicit."""
     first = get("/observations", {**params, "page": 1, "per_page": 200})
     total = int(first.get("total_results") or 0)
@@ -92,27 +92,33 @@ def _pages(params):
         if start >= end:
             raise RuntimeError("Meer dan 10.000 waarnemingen op één dag. Verklein het gebied of kies een kleinere soortgroep.")
         mid = start + timedelta(days=(end - start).days // 2)
-        a = _pages({**params, "d2": mid.isoformat()})
-        b = _pages({**params, "d1": (mid + timedelta(days=1)).isoformat()})
+        a = _pages({**params, "d2": mid.isoformat()}, on_page)
+        b = _pages({**params, "d1": (mid + timedelta(days=1)).isoformat()}, on_page)
         return a + b
     pages = [[_compact_observation(o) for o in first.get("results", [])]]
     count = math.ceil(total / 200)
+    if on_page:
+        on_page(1, max(1, count), total)
     if count > 1:
         with ThreadPoolExecutor(max_workers=min(4, count - 1)) as pool:
             jobs = {pool.submit(get, "/observations", {**params, "page": page, "per_page": 200}): page
                     for page in range(2, count + 1)}
-            fetched = {page: [_compact_observation(o) for o in future.result().get("results", [])]
-                       for future, page in jobs.items()}
-        pages += [fetched[page] for page in range(2, count + 1)]
+            fetched = {}
+            for future in as_completed(jobs):
+                fetched[jobs[future]] = [_compact_observation(o) for o in future.result().get("results", [])]
+                if on_page:
+                    on_page(1 + len(fetched), count, total)
+        for page in range(2, count + 1):
+            pages.append(fetched[page])
     return [row for page in pages for row in page]
 
 
-def trip_observations(username, start, end, place_ids=(), geometry=None):
+def trip_observations(username, start, end, place_ids=(), geometry=None, on_page=None):
     base = {"user_id": username, "d1": start.isoformat(), "d2": end.isoformat(),
             "order_by": "observed_on", "order": "asc", "locale": "en"}
     collected = {}
     if not place_ids and not geometry:
-        collected = {int(o["id"]): o for o in _pages(base)}
+        collected = {int(o["id"]): o for o in _pages(base, on_page)}
     for place_id in place_ids:
         for o in _pages({**base, "place_id": place_id}):
             collected[int(o["id"])] = o
@@ -130,7 +136,7 @@ def trip_observations(username, start, end, place_ids=(), geometry=None):
     return sorted(collected.values(), key=lambda o: (o.get("observed_on") or "", o["id"]))
 
 
-def own_firsts_in_window(username, start, end, species_ids, trip_observations_all=None):
+def own_firsts_in_window(username, start, end, species_ids, trip_observations_all=None, on_page=None):
     """Find personal first IDs for trip taxa with one paged date-window search.
 
     The search is worldwide even when the report has a region: an earlier
@@ -138,7 +144,7 @@ def own_firsts_in_window(username, start, end, species_ids, trip_observations_al
     """
     wanted = {int(sid) for sid in species_ids}
     observations = (trip_observations_all if trip_observations_all is not None else
-                    trip_observations(username, start, end))
+                    trip_observations(username, start, end, on_page=on_page))
     firsts = {}
     for observation in observations:
         taxon = observation.get("taxon") or {}
@@ -228,7 +234,7 @@ def personal_species_counts(username, species_ids):
         ids = sorted(wanted)
         for start in range(0, len(ids), 40):
             rows.extend(collect({"user_id": username,
-                                 "taxon_ids": ",".join(map(str, ids[start:start + 40]))}))
+                                 "taxon_id": ",".join(map(str, ids[start:start + 40]))}))
     counts = {sid: 0 for sid in wanted}
     for item in rows:
         taxon = item.get("taxon") or {}
@@ -315,7 +321,7 @@ def _prior_species(ids, cutoff, **filters):
     if not ids:
         return set()
     wanted = set(map(int, ids))
-    params = {"taxon_ids": ",".join(map(str, sorted(wanted))), "d2": cutoff,
+    params = {"taxon_id": ",".join(map(str, sorted(wanted))), "d2": cutoff,
               "per_page": 500, **filters}
     first = get("/observations/species_counts", {**params, "page": 1})
     total = int(first.get("total_results") or 0)
@@ -332,7 +338,8 @@ def _prior_species(ids, cutoff, **filters):
     return present
 
 
-def batch_stars(rows, username, start, end, place_ids=(), geometry_json="", own_first_ids=None):
+def batch_stars(rows, username, start, end, place_ids=(), geometry_json="", own_first_ids=None,
+                on_item=None):
     """Check personal and regional novelty independently, then global novelty."""
     ids = [int(row["species_id"]) for row in rows]
     cutoff = (date.fromisoformat(start) - timedelta(days=1)).isoformat()
@@ -408,4 +415,11 @@ def batch_stars(rows, username, start, end, place_ids=(), geometry_json="", own_
                      "star": "🔴" if global_new else "🟠" if area_new else "🟡" if own_new else ""}
 
     with ThreadPoolExecutor(max_workers=4) as pool:
-        return dict(pool.map(check_one, rows))
+        jobs = [pool.submit(check_one, row) for row in rows]
+        checked = {}
+        for future in as_completed(jobs):
+            sid, result = future.result()
+            checked[sid] = result
+            if on_item:
+                on_item(sid, result, len(checked), len(jobs))
+        return checked
