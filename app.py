@@ -18,6 +18,8 @@ from report_pdf import make_trip_pdf
 from taxonomy import sort_species_overview
 from trip_data import batch_stars, exact_place_match, first_record, normalize_geometry, own_firsts_in_window, personal_species_counts, search_places, species_frame, star_for, summary_counts, trip_observations
 
+EARLIEST_TRIP_DATE = date(1965, 1, 1)
+
 
 # Embedded so a single app.py update can start even if the component directory
 # was not uploaded by the hosting interface.
@@ -175,9 +177,11 @@ with st.container(border=True):
     with user_col:
         username = st.text_input("Openbare iNaturalist-gebruikersnaam", placeholder="Bijvoorbeeld: jouw_gebruikersnaam", key="trip_username").strip()
     with from_col:
-        start = st.date_input("Van", max_value=date.today(), key="trip_start")
+        start = st.date_input("Van", min_value=EARLIEST_TRIP_DATE,
+                              max_value=date.today(), key="trip_start")
     with to_col:
-        end = st.date_input("Tot en met", max_value=date.today(), key="trip_end")
+        end = st.date_input("Tot en met", min_value=EARLIEST_TRIP_DATE,
+                            max_value=date.today(), key="trip_end")
 
     st.markdown("**Land of streek kiezen**")
     with st.form("place_search", clear_on_submit=False):
