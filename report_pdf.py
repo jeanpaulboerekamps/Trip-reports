@@ -3,6 +3,8 @@ from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 import math
 import re
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import requests
 from reportlab.lib import colors
@@ -142,6 +144,17 @@ def make_trip_pdf(frame, meta, novelty):
     card_w = (page_w - 2 * margin - 3 * gutter) / 4
     rows = list(frame.to_dict("records"))
     unclassified = meta.get('unidentified_records') or []
+    total_pages = 1 + math.ceil(len(rows)/16) + math.ceil(len(unclassified)/64)
+    calculated = meta.get('calculated_at')
+    calculation_label = 'Berekeningsdatum: niet opgeslagen'
+    if calculated:
+        try:
+            stamp = datetime.fromisoformat(calculated)
+            if stamp.tzinfo is not None:
+                stamp = stamp.astimezone(ZoneInfo('Europe/Amsterdam'))
+            calculation_label = 'Berekend op: ' + stamp.strftime('%d-%m-%Y %H:%M')
+        except (ValueError,TypeError):
+            pass
     with ThreadPoolExecutor(max_workers=8) as pool:
         photos = list(pool.map(_photo, [str(row.get("Foto") or "") for row in rows]))
         extra_photos = list(pool.map(_photo, [str(row.get('photo') or '') for row in unclassified]))
@@ -165,6 +178,8 @@ def make_trip_pdf(frame, meta, novelty):
             c.setFont("Helvetica", 8)
             c.drawString(margin, page_h - 80, _fit("Gebied: " + (" of ".join(area) if area else "wereldwijd"),
                                                    page_w - 2 * margin, "Helvetica", 8))
+            c.setFont('Helvetica',7.5)
+            c.drawString(margin,page_h-91,calculation_label)
             values = [
                 (meta.get("observation_total", sum(int(r["Waarnemingen in gebied"]) for r in rows)), "Waarnemingen"),
                 (meta.get("unidentified_total", 0), "Nog niet op soort"),
@@ -193,7 +208,7 @@ def make_trip_pdf(frame, meta, novelty):
         c.line(margin, 27, page_w - margin, 27)
         c.setFont("Helvetica", 8)
         c.setFillColor(MUTED)
-        c.drawRightString(page_w - margin, 15, f"Pagina {page_no}")
+        c.drawRightString(page_w - margin, 15, f"Pagina {page_no} van {total_pages}")
 
     # First page: saved trip name, summary, then the map.
     page_header(1, with_summary=True)
