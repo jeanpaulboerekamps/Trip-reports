@@ -10,7 +10,7 @@ import tempfile
 import time
 from uuid import uuid4
 import pandas as pd
-from concentrations import concentration_circles, personal_circles
+from concentrations import concentration_circles, personal_circles, full_circles
 from trip_data import resolve_username, trip_observations, species_frame, personal_species_counts, own_firsts_in_window, batch_stars, _prior_species
 from trip_map import observation_points, select_time_window, infer_trip_area
 
@@ -19,7 +19,8 @@ def build_report(search, progress, checkpoint=None, save=None):
     state = checkpoint if checkpoint is not None else {}
     save = save or (lambda state: None)
     username, start, end, start_time, end_time = search[:5]
-    extended = bool(search[5]) if len(search) > 5 else False
+    map_extended = bool(search[5]) if len(search) > 5 else False
+    extended = True  # Totals and species stars are always fully checked.
     start, end = date.fromisoformat(start), date.fromisoformat(end)
     start_time, end_time = clock.fromisoformat(start_time), clock.fromisoformat(end_time)
     def stage(name, message, operation):
@@ -79,6 +80,7 @@ def build_report(search, progress, checkpoint=None, save=None):
             'heat_points': points, 'concentrations': stats, 'missing_location_total': len(observations)-len(points),
             'unknown_time_total': unknown, 'observation_total': len(observations),
             'extended_checks': extended,
+            'map_extended_checks': map_extended,
             'unidentified_total': len(observations)-int(frame['Waarnemingen in gebied'].sum())}
     novelty = personal.copy()
     if extended:
@@ -86,7 +88,8 @@ def build_report(search, progress, checkpoint=None, save=None):
         rows = [row for _,row in frame.iterrows()]
         for offset in range(0,len(rows),40):
             batch = rows[offset:offset+40]
-            if all(int(row['species_id']) in checked for row in batch):
+            if all(int(row['species_id']) in checked and
+                   (not map_extended or 'area_first_id' in checked[int(row['species_id'])]) for row in batch):
                 continue
             progress(f'Uitgebreide stercontrole: {offset} van {len(rows)} soorten (langzamer)')
             try:
@@ -98,6 +101,11 @@ def build_report(search, progress, checkpoint=None, save=None):
                 warnings.append(f'Uitgebreide stercontrole onvolledig: {exc}')
             save(state)
         novelty.update(checked)
+    if map_extended:
+        def map_stats():
+            circles, records = concentration_circles(observations, frame)
+            return full_circles(circles, records, novelty, firsts)
+        meta['concentrations'] = stage('map_circles_v9', 'Extra kaarttellingen samenstellen…', map_stats)
     return {'frame': frame, 'meta': meta, 'novelty': novelty, 'firsts': firsts, 'warnings': warnings}
 
 
@@ -131,7 +139,7 @@ def decode_state(value):
 
 class ReportJobs:
     def __init__(self, directory=None, builder=build_report):
-        self.directory = Path(directory or Path(tempfile.gettempdir())/'tripreport-jobs-v8')
+        self.directory = Path(directory or Path(tempfile.gettempdir())/'tripreport-jobs-v9')
         self.directory.mkdir(parents=True, exist_ok=True)
         self.builder = builder
         self.pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix='tripreport')
@@ -162,6 +170,12 @@ class ReportJobs:
                 if job['key'] == key and job['state'] == 'running':
                     return token
             saved = self._load(self.directory/(key+'.checkpoint'))
+            if saved is None and len(search) == 6:
+                # A changed map checkbox reuses the same trip history and star checks.
+                other = (*search[:5], not search[5])
+                previous = self._load(self.directory/(self.key(other)+'.checkpoint'))
+                if previous:
+                    saved = {**previous, 'token':uuid4().hex, 'search':search}
             token = saved['token'] if saved else uuid4().hex
             result = self._load(self.directory/(token+'.pickle'))
             if result is not None:
@@ -230,14 +244,14 @@ class ReportJobs:
     def export_checkpoint(self, token):
         saved = self._saved_token(token)
         if saved:
-            return json.dumps({'format':'tripreport-checkpoint-v8','payload':encode_state(saved)}, ensure_ascii=False).encode()
+            return json.dumps({'format':'tripreport-checkpoint-v9','payload':encode_state(saved)}, ensure_ascii=False).encode()
 
     def import_checkpoint(self, data):
         if len(data) > 32*1024*1024:
             raise ValueError('Herstartbestand te groot (maximaal 32 MB).')
         document = json.loads(data)
-        if document.get('format') != 'tripreport-checkpoint-v8':
-            raise ValueError('Dit is geen versie 8 herstartbestand.')
+        if document.get('format') not in ('tripreport-checkpoint-v8', 'tripreport-checkpoint-v9'):
+            raise ValueError('Dit is geen geldig herstartbestand (versie 8 of 9).')
         saved = decode_state(document['payload'])
         search = saved['search']
         if len(search) != 6 or not isinstance(search[0],str) or not isinstance(search[5],bool):

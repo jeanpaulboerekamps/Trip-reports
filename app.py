@@ -38,11 +38,7 @@ def make_record(name, search, summary, trip_id=None):
             "search": search, "summary": summary}
 
 def summary_snapshot(frame, meta, novelty, counter):
-    extended = meta.get("extended_checks", True)
-    counts = counter(novelty, frame["species_id"], extended and bool(meta["places"] or meta["geometry"]))
-    if not extended:
-        counts.update(area=None)
-        counts['global'] = None
+    counts = counter(novelty, frame["species_id"], bool(meta["places"] or meta["geometry"]))
     return {"observations": int(meta["observation_total"]),
             "unidentified": int(meta.get("unidentified_total", 0)),
             "species": len(frame), "own": counts["own"], "area": counts["area"],
@@ -127,7 +123,7 @@ if isinstance(storage_event, dict) and storage_event.get("nonce") != st.session_
     st.session_state.storage_action = {"op": "list", "nonce": "initial"}
 
 st.title("🧭 Tripreport Verkenner")
-st.caption("Versie 8 · snelle persoonlijke telling en berekening hervatten")
+st.caption("Versie 9 · volledige sterren en totalen; extra kaarttellingen naar keuze")
 st.markdown('<div class="intro"><b>Je afgeronde reis in soorten.</b> Kies je iNaturalist-gebruikersnaam en de begin- en einddatum met tijd. Het reisgebied volgt automatisch uit de locaties van je waarnemingen. De foto’s komen uit jouw openbare waarnemingen.</div>', unsafe_allow_html=True)
 if st.session_state.storage_notice:
     st.info(st.session_state.storage_notice)
@@ -196,8 +192,8 @@ with st.container(border=True):
 
     st.caption("Tijden volgen de lokale tijd van iedere iNaturalist-waarneming. De eindminuut telt volledig mee. "
                "Het gebied wordt de omhullende grens van de openbare locaties met circa 1 km marge.")
-    extended_checks = st.checkbox("Uitgebreide oranje en rode stercontrole (kan veel langer duren)", value=False,
-                                  help="Standaard worden alleen jouw persoonlijke eerste soorten gecontroleerd. De cirkels tonen drie aantallen.")
+    extended_checks = st.checkbox("Ook nieuw in gebied en nieuw op iNaturalist in de kaartcirkels tonen", value=False,
+                                  help="Deze keuze geldt alleen voor de kaart en de PDF-kaart. Totalen en sterren worden altijd volledig gecontroleerd.")
     go = st.button("🔎 Tripreport maken", type="primary", use_container_width=True)
 
 @st.cache_resource
@@ -317,7 +313,7 @@ def card_html(current):
 
 def summary_html(all_species, meta, novelty):
     ids = all_species["species_id"]
-    extended = meta.get('extended_checks', True)
+    extended = True
     has_area = extended and bool(meta["places"] or meta["geometry"])
     counts = summary_counts(novelty, ids, has_area)
     pending = any(int(sid) not in novelty for sid in ids)
@@ -406,11 +402,14 @@ if frame is not None and meta:
     points = meta.get("heat_points") or []
     if points:
         st_folium(leaflet_heatmap(points, circles=meta.get("concentrations", [])),
-                  height=460, use_container_width=True, returned_objects=[], key="trip_heatmap")
+                  height=680, use_container_width=True, returned_objects=[], key="trip_heatmap")
         st.caption(f"{len(points):,} waarnemingen met openbare locatie. Kleuren tonen de relatieve dichtheid. "
                    "Cirkels: straal 25 km, minstens 26 waarnemingen. Overlappende cirkels kunnen dezelfde waarnemingen bevatten.")
         st.caption("Cirkels tonen waarnemingen, soorten en soorten nieuw voor jou. Nieuw betekent: jouw eerste gedateerde "
                    "iNaturalist-waarneming van die soort ligt in deze cirkel. ≥ … (?) betekent dat de controle onvolledig is.")
+        if meta.get('map_extended_checks'):
+            st.caption("De extra cirkeltellingen tonen eerste registraties in het automatische reisgebied en op iNaturalist; "
+                       "de betreffende eerste waarneming moet binnen deze cirkel liggen.")
     else:
         st.info("Deze selectie heeft geen openbare locaties; er kan geen heatmap of reisgebied worden bepaald.")
     if meta.get("missing_location_total"):
@@ -451,11 +450,8 @@ if frame is not None and meta:
         maximum = len(ordered)
         shown = st.slider("Aantal soorten tonen", 1, maximum, maximum) if maximum > 10 else maximum
         current = ordered.head(shown)
-        if meta.get('extended_checks', True):
-            st.markdown('<div class="legend"><span><b class="yellow">★</b> Mijn eerste waarneming</span><span><b class="yellow rg">★</b> Eigen eerste met Research Grade tijdens reis</span><span><b class="orange">★</b> Eerste in automatisch reisgebied</span><span><b class="red">★</b> Eerste op iNaturalist</span></div>', unsafe_allow_html=True)
-            st.caption("Alle toepasselijke sterren staan naast elkaar. Bij een te groot historisch kaartgebied kan de oranje ster onbekend blijven.")
-        else:
-            st.caption("Geel: jouw eerste waarneming. Rode rand om geel: Research Grade tijdens de reis. Uitgebreide gebieds- en wereldcontroles staan uit.")
+        st.markdown('<div class="legend"><span><b class="yellow">★</b> Mijn eerste waarneming</span><span><b class="yellow rg">★</b> Eigen eerste met Research Grade tijdens reis</span><span><b class="orange">★</b> Eerste in automatisch reisgebied</span><span><b class="red">★</b> Eerste op iNaturalist</span></div>', unsafe_allow_html=True)
+        st.caption("Alle toepasselijke sterren staan naast elkaar, onafhankelijk van de kaartkeuze. Bij een te groot historisch kaartgebied kan de oranje ster onbekend blijven.")
         show_progressive_grid(current, ordered, meta, summary_slot)
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", meta["username"])
     completed_checkpoint = report_jobs().export_checkpoint(st.session_state.get('loaded_report_job') or '')

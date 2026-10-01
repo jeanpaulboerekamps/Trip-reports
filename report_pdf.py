@@ -116,7 +116,7 @@ def make_trip_pdf(frame, meta, novelty):
     rows = list(frame.to_dict("records"))
     with ThreadPoolExecutor(max_workers=8) as pool:
         photos = list(pool.map(_photo, [str(row.get("Foto") or "") for row in rows]))
-    extended = meta.get('extended_checks', True)
+    extended = True
     counts = summary_counts(novelty, frame["species_id"], extended and bool(meta["places"] or meta["geometry"]))
 
     def page_header(page_no, with_summary=False):
@@ -169,16 +169,18 @@ def make_trip_pdf(frame, meta, novelty):
     c.setFillColor(MUTED)
     c.drawString(margin, page_h - 69, _fit(f"{meta['username']} · {meta['start']} {meta.get('start_time', '00:00')} t/m {meta['end']} {meta.get('end_time', '23:59')}", page_w-2*margin, size=10))
     points = meta.get('heat_points') or []
-    map_bytes, missing_tiles = heatmap_image(points, circles=meta.get('concentrations', []))
+    map_bytes, missing_tiles = heatmap_image(points, width=1200, height=1260, circles=meta.get('concentrations', []))
     if map_bytes:
-        c.drawImage(ImageReader(BytesIO(map_bytes)), margin, page_h-410,
-                    width=page_w-2*margin, height=(page_w-2*margin)*.6)
+        map_height = (page_w-2*margin)*1.05
+        c.drawImage(ImageReader(BytesIO(map_bytes)), margin, page_h-95-map_height,
+                    width=page_w-2*margin, height=map_height)
     else:
         c.drawString(margin, page_h-120, "Geen openbare locaties beschikbaar voor deze selectie.")
     notes = [f"{len(points):,} waarnemingen met openbare locatie. Kleuren tonen relatieve dichtheid.",
              f"{meta.get('missing_location_total', 0):,} waarnemingen zonder openbare locatie tellen wel mee in het rapport.",
              "Cirkels: straal 25 km, minimaal 26 waarnemingen. Overlap kan dezelfde waarnemingen bevatten.",
-             "Cirkels tonen waarnemingen, soorten en soorten nieuw voor jouw account.",
+             "Cirkels tonen waarnemingen, soorten en soorten nieuw voor jou" +
+             (", in gebied en op iNaturalist." if meta.get('map_extended_checks') else "."),
              "Nieuw: jouw eerste gedateerde waarneming ligt in de cirkel. >= ... (?) betekent: controle onvolledig.",
              "Tijden zijn de lokale waarnemingstijden; de gekozen eindminuut telt volledig mee."]
     if meta.get('unknown_time_total'):
@@ -187,7 +189,7 @@ def make_trip_pdf(frame, meta, novelty):
         notes.append("De achtergrondkaart kon niet volledig worden opgehaald; de heatmap is wel compleet.")
     c.setFont('Helvetica', 8)
     for i, note in enumerate(notes):
-        c.drawString(margin, page_h-435-i*15, _fit(note, page_w-2*margin, size=8))
+        c.drawString(margin, page_h-671-i*14, _fit(note, page_w-2*margin, size=8))
     c.drawRightString(page_w-margin, 15, 'Pagina 1')
     c.showPage()
     page_no = 2

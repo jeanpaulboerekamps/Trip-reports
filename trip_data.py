@@ -407,8 +407,10 @@ def batch_stars(rows, username, start, end, place_ids=(), geometry_json="", own_
         sid = int(row["species_id"])
         observed = row["obs_ids"]
         global_new = False
+        global_first_id = None
         if sid not in own_prior and sid not in area_prior and sid not in global_prior:
             candidate = _first({"taxon_id": sid, "d2": end})
+            global_first_id = candidate['id'] if candidate else None
             if candidate and candidate.get("id") in observed:
                 global_new = True
 
@@ -423,6 +425,7 @@ def batch_stars(rows, username, start, end, place_ids=(), geometry_json="", own_
                 own_new = bool(candidate and candidate.get("id") in observed)
 
         area_new = None if not has_area else global_new
+        area_first_id = global_first_id if global_new and has_area else None
         if has_area and not global_new and sid in area_prior:
             area_new = False
         elif has_area and not global_new and sid not in area_uncertain:
@@ -439,12 +442,14 @@ def batch_stars(rows, username, start, end, place_ids=(), geometry_json="", own_
                     first_area.append(candidate)
             if complete and first_area:
                 earliest = min(first_area, key=lambda o: (o.get("observed_on") or "9999", o["id"]))
+                area_first_id = earliest['id']
                 area_new = earliest["id"] in observed
             elif not complete:
                 area_new = None
             else:
                 area_new = False
         return sid, {"own": own_new, "area": area_new, "global": global_new,
+                     "area_first_id": area_first_id, "global_first_id": global_first_id,
                      "star": "🔴" if global_new else "🟠" if area_new else "🟡" if own_new else ""}
 
     with ThreadPoolExecutor(max_workers=4) as pool:

@@ -148,6 +148,8 @@ def circle_lines(circle):
              f"{circle.get('own', '?')} nieuw voor mij"]
     if 'country' in circle:
         lines.append(f"{circle['country']} nieuw voor land")
+    if 'area' in circle:
+        lines.append(f"{circle['area']} nieuw in gebied")
     if 'global' in circle:
         lines.append(f"{circle['global']} nieuw op iNaturalist")
     return lines
@@ -164,4 +166,26 @@ def personal_circles(circles, records, novelty, firsts):
         unknown = any(novelty.get(sid, {}).get('own') is None for sid in species)
         result.append({k:v for k,v in circle.items() if k != 'members'} | {
             'number': number, 'own': f'>={count} (?)' if unknown else str(count)})
+    return result
+
+
+def full_circles(circles, records, novelty, firsts):
+    result = personal_circles(circles, records, novelty, firsts)
+    for circle, stats in zip(circles, result):
+        members = [records[i] for i in circle['members']]
+        observed = {r['id'] for r in members}
+        species = {r['species'] for r in members if r['species'] is not None}
+        for flag in ('area', 'global'):
+            count, unknown = 0, False
+            for sid in species:
+                item = novelty.get(sid, {})
+                if item.get(flag) is None:
+                    unknown = True
+                elif item.get(flag):
+                    first = item.get(flag+'_first_id')
+                    if first is None:
+                        unknown = True
+                    elif first in observed:
+                        count += 1
+            stats[flag] = f'>={count} (?)' if unknown else str(count)
     return result

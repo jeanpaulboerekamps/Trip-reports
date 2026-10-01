@@ -145,16 +145,16 @@ def leaflet_heatmap(points, geometry=None, circles=None):
         bounds.extend([[lat, lng+360*round((centre[1]-lng)/360)] for lat,lng in circle_ring(circle)])
         labels = circle_lines(circle)
         lines = '<br>'.join(escape(line) for line in labels)
-        label_height = len(labels)*16+12
+        label_height = len(labels)*12+6
         folium.Circle(location, radius=25000, color='#5634a5', weight=2, fill=True, fill_opacity=.04,
                       tooltip=f"Concentratie {circle['number']} · 25 km",
                       popup=escape(circle.get('countries') or 'Land onbekend')+'<br>'+lines).add_to(result)
-        folium.Marker(location, icon=folium.DivIcon(icon_size=(172,label_height), icon_anchor=(86,label_height/2), html=
+        folium.Marker(location, icon=folium.DivIcon(icon_size=(138,label_height), icon_anchor=(69,label_height/2), html=
                       '<div style="background:rgba(255,255,255,.88);border:1px solid #5634a5;border-radius:12px;'
-                      'padding:5px;text-align:center;font:12px/16px sans-serif;color:#251745;white-space:nowrap">'
+                      'padding:2px;text-align:center;font:10px/12px sans-serif;color:#251745;white-space:nowrap">'
                       +lines+'</div>')).add_to(result)
     result.fit_bounds([[min(p[0] for p in bounds), min(p[1] for p in bounds)],
-                       [max(p[0] for p in bounds), max(p[1] for p in bounds)]], max_zoom=14, padding=[20,20])
+                       [max(p[0] for p in bounds), max(p[1] for p in bounds)]], max_zoom=15, padding=[8,8])
     return result
 
 
@@ -188,7 +188,7 @@ def heatmap_image(points, width=1000, height=600, tile_loader=None, circles=None
     zoom = 14
     while zoom > 0:
         xy = [project(lat, lon, zoom) for lat, lon in bounds]
-        if max(p[0] for p in xy)-min(p[0] for p in xy) < width*.75 and max(p[1] for p in xy)-min(p[1] for p in xy) < height*.75:
+        if max(p[0] for p in xy)-min(p[0] for p in xy) < width*.92 and max(p[1] for p in xy)-min(p[1] for p in xy) < height*.90:
             break
         zoom -= 1
     bound_xy = [project(lat, lon, zoom) for lat, lon in bounds]
@@ -231,7 +231,7 @@ def heatmap_image(points, width=1000, height=600, tile_loader=None, circles=None
     draw = ImageDraw.Draw(image)
     from concentrations import circle_lines
     from PIL import ImageFont
-    font = ImageFont.load_default(size=14)
+    font = ImageFont.load_default(size=11)
     for circle in circles or []:
         outline = []
         for lat, lon in circle_ring(circle):
@@ -243,11 +243,11 @@ def heatmap_image(points, width=1000, height=600, tile_loader=None, circles=None
         x,y = project(circle['lat'], lon, zoom)
         x,y = x-left,y-top
         lines = circle_lines(circle)
-        box_height = len(lines)*18+10
-        box_width = max(draw.textlength(line, font=font) for line in lines)+12
+        box_height = len(lines)*14+6
+        box_width = max(draw.textlength(line, font=font) for line in lines)+8
         draw.rounded_rectangle((x-box_width/2,y-box_height/2,x+box_width/2,y+box_height/2), radius=10, fill='white', outline='#5634a5')
         for i,line in enumerate(lines):
-            draw.text((x-draw.textlength(line,font=font)/2,y-box_height/2+5+i*18),line,fill='#251745',font=font)
+            draw.text((x-draw.textlength(line,font=font)/2,y-box_height/2+3+i*14),line,fill='#251745',font=font)
     draw.rectangle((0,height-25,width,height), fill='white')
     draw.text((8,height-19), '(c) OpenStreetMap contributors | Blauw: lage dichtheid - rood: hoge dichtheid', fill='#304a39')
     if missing:
