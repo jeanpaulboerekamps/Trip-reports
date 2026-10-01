@@ -241,6 +241,21 @@ class ReportJobs:
             raise ValueError('Geen tussentijdse opslag gevonden. Laad een herstartbestand of maak de trip opnieuw.')
         return self.start(saved['search'])
 
+    def settings(self, token):
+        """Recover form values independently of Streamlit Session State."""
+        if not isinstance(token,str) or len(token)!=32 or any(c not in '0123456789abcdef' for c in token):
+            return None
+        saved = self._saved_token(token)
+        if saved:
+            return tuple(saved['search'])
+        job = self.snapshot(token)
+        if job and job['state'] == 'done':
+            meta = job['result'].get('meta', {})
+            if meta:
+                return (meta['username'],meta['start'],meta['end'],meta['start_time'],meta['end_time'],
+                        meta.get('map_extended_checks',False))
+        return None
+
     def export_checkpoint(self, token):
         saved = self._saved_token(token)
         if saved:

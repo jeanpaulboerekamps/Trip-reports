@@ -1,4 +1,4 @@
-# Tripreport Verkenner - versie 9
+# Tripreport Verkenner - versie 10
 
 Een Streamlit-app voor openbare iNaturalist-waarnemingen tijdens een reis.
 
@@ -10,7 +10,7 @@ Een Streamlit-app voor openbare iNaturalist-waarnemingen tijdens een reis.
 4. Klik **Tripreport maken**. De voortgang vermeldt de actieve stap.
 5. Het rapport begint met de heatmap en 25 km-cirkels, gevolgd door samenvatting en soortenkaarten met eigen foto's. De PDF gebruikt dezelfde cirkels en gekozen soortenvolgorde. Er is geen CSV-export.
 
-Bovenaan de app staat **Versie 9**, zodat je kunt controleren of de nieuwe bestanden zijn gedeployed. Bestaande trips uit eerdere versies blijven bruikbaar.
+Bovenaan de app staat **Versie 10**, zodat je kunt controleren of de nieuwe bestanden zijn gedeployed. Bestaande trips uit eerdere versies blijven bruikbaar.
 
 ## Snelle cirkels en persoonlijke eerste soorten
 
@@ -25,6 +25,8 @@ Gele, oranje en rode sterren en de persoonlijke/gebieds-/wereldtellingen in de s
 ## Onderbreken en hervatten
 
 Het ophalen en controleren draait op de server, los van de browserverbinding. Bewaar de URL met `?report=...` om terug te keren naar dezelfde taak.
+
+De browser bewaart nu ook automatisch het nummer van je laatste berekening. Als je terugkomt via de gewone app-URL, vindt de app deze taak terug. Boven het reisformulier staat **Je vorige berekening** met de voortgang en **Verdergaan met vorige berekening**. Bij een lopende taak opent dit dezelfde taak; bij een onderbroken servertaak hervat het het opgeslagen punt. De gebruikersnaam, datums, tijden en kaartkeuze worden uit de taak teruggezet. Dit werkt in dezelfde browser op hetzelfde apparaat als lokale browseropslag beschikbaar is. Zonder servergegevens wordt duidelijk aangegeven dat een herstartbestand nodig is.
 
 De app slaat een herstartpunt op na accountcontrole, volledig ophalen van de waarnemingen, opbouwen van de soortenlijst, iedere persoonlijke groepscontrole, cirkelberekening en ophalen van totalen. Volledige stercontroles worden per groep van 40 soorten opgeslagen. Een onafgeronde stap wordt opnieuw uitgevoerd, afgeronde stappen en groepen worden hergebruikt.
 

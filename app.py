@@ -23,7 +23,7 @@ EARLIEST_TRIP_DATE = date(1965, 1, 1)
 
 # Embedded so a single app.py update can start even if the component directory
 # was not uploaded by the hosting interface.
-_BROWSER_COMPONENT_HTML = '<!doctype html>\n<html lang="nl"><head><meta charset="utf-8"></head><body style="margin:0">\n<script>\nconst STORAGE_KEY = "tripreport_verkenner_saved_trips_v1";\nlet lastNonce = null;\nfunction send(type, extra = {}) {\n  window.parent.postMessage({isStreamlitMessage:true, type, ...extra}, "*");\n}\nfunction read() {\n  const value = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");\n  if (!Array.isArray(value)) throw new Error("De bewaarde trips zijn beschadigd.");\n  return value;\n}\nfunction publish(nonce, records, error = "") {\n  send("streamlit:setComponentValue", {dataType:"json", value:{nonce, records, error}});\n}\nwindow.addEventListener("message", event => {\n  if (event.data.type !== "streamlit:render") return;\n  const {op = "list", nonce = "initial", record, imported} = event.data.args || {};\n  if (nonce === lastNonce) return;\n  lastNonce = nonce;\n  try {\n    let records = read();\n    if (op === "save") {\n      const pos = records.findIndex(x => x.id === record.id);\n      if (pos < 0) records.push(record); else records[pos] = record;\n      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));\n    } else if (op === "import") {\n      if (!Array.isArray(imported) || imported.length > 1000 ||\n          !imported.every(x => x && typeof x.id === "string" && x.search && x.summary)) {\n        throw new Error("Dit bestand bevat geen geldige trips.");\n      }\n      const byId = new Map(records.map(x => [x.id, x]));\n      imported.forEach(x => byId.set(x.id, x));\n      records = [...byId.values()];\n      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));\n    }\n    publish(nonce, records);\n  } catch (error) {\n    publish(nonce, [], String(error.message || error));\n  }\n});\nsend("streamlit:componentReady", {apiVersion:1});\nsend("streamlit:setFrameHeight", {height:0});\n</script>\n</body></html>\n'
+_BROWSER_COMPONENT_HTML = "<!doctype html>\n<html lang=\"nl\"><head><meta charset=\"utf-8\"></head><body style=\"margin:0\">\n<script>\nconst STORAGE_KEY = \"tripreport_verkenner_saved_trips_v1\";\nconst REPORT_KEY = \"tripreport_last_report_v1\";\nlet lastNonce = null;\nlet lastActive = null;\nfunction send(type, extra = {}) {\n  window.parent.postMessage({isStreamlitMessage:true, type, ...extra}, \"*\");\n}\nfunction read() {\n  const value = JSON.parse(localStorage.getItem(STORAGE_KEY) || \"[]\");\n  if (!Array.isArray(value)) throw new Error(\"De bewaarde trips zijn beschadigd.\");\n  return value;\n}\nfunction publish(nonce, records, error = \"\") {\n  let last_report = localStorage.getItem(REPORT_KEY) || \"\";\n  if (!/^[a-f0-9]{32}$/.test(last_report)) last_report = \"\";\n  send(\"streamlit:setComponentValue\", {dataType:\"json\", value:{nonce, records, error, last_report}});\n}\nwindow.addEventListener(\"message\", event => {\n  if (event.data.type !== \"streamlit:render\") return;\n  const {op = \"list\", nonce = \"initial\", record, imported, active_report} = event.data.args || {};\n  const changed = active_report && active_report !== lastActive;\n  if (nonce === lastNonce && !changed) return;\n  lastNonce = nonce;\n  try {\n    if (active_report && /^[a-f0-9]{32}$/.test(active_report)) {\n      localStorage.setItem(REPORT_KEY, active_report);\n      lastActive = active_report;\n    }\n    let records = read();\n    if (op === \"save\") {\n      const pos = records.findIndex(x => x.id === record.id);\n      if (pos < 0) records.push(record); else records[pos] = record;\n      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));\n    } else if (op === \"import\") {\n      if (!Array.isArray(imported) || imported.length > 1000 ||\n          !imported.every(x => x && typeof x.id === \"string\" && x.search && x.summary)) {\n        throw new Error(\"Dit bestand bevat geen geldige trips.\");\n      }\n      const byId = new Map(records.map(x => [x.id, x]));\n      imported.forEach(x => byId.set(x.id, x));\n      records = [...byId.values()];\n      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));\n    }\n    publish(nonce, records);\n  } catch (error) {\n    publish(nonce, [], String(error.message || error));\n  }\n});\nsend(\"streamlit:componentReady\", {apiVersion:1});\nsend(\"streamlit:setFrameHeight\", {height:0});\n</script>\n</body></html>\n"
 
 def make_record(name, search, summary, trip_id=None):
     name = name.strip()
@@ -102,6 +102,11 @@ for key, value in {"trip_username": "", "trip_start": date.today() - timedelta(d
         st.session_state[key] = value
 
 
+@st.cache_resource
+def report_jobs():
+    return ReportJobs()
+
+
 component_dir = Path(__file__).parent / "local_store_component"
 if not (component_dir / "index.html").is_file():
     component_dir = Path(tempfile.gettempdir()) / "tripreport-browser-store-v1"
@@ -109,7 +114,24 @@ if not (component_dir / "index.html").is_file():
     (component_dir / "index.html").write_text(_BROWSER_COMPONENT_HTML, encoding="utf-8")
 browser_store = declare_component("trip_browser_store", path=str(component_dir))
 action = st.session_state.storage_action
-storage_event = browser_store(**action, key="trip_browser_store")
+storage_event = browser_store(**action, active_report=st.session_state.get('report_job') or st.query_params.get('report'), key="trip_browser_store")
+if isinstance(storage_event, dict) and not st.session_state.get('report_job') and not st.query_params.get('report'):
+    previous_report = storage_event.get('last_report')
+    if isinstance(previous_report,str) and re.fullmatch(r'[a-f0-9]{32}', previous_report):
+        st.session_state.report_job = previous_report
+        st.query_params['report'] = previous_report
+
+restore_token = st.session_state.get('report_job') or st.query_params.get('report')
+if restore_token and st.session_state.get('restored_form_token') != restore_token:
+    settings = report_jobs().settings(restore_token)
+    if settings:
+        st.session_state.trip_username = settings[0]
+        st.session_state.trip_start = date.fromisoformat(settings[1])
+        st.session_state.trip_end = date.fromisoformat(settings[2])
+        st.session_state.trip_start_time = time.fromisoformat(settings[3])
+        st.session_state.trip_end_time = time.fromisoformat(settings[4])
+        st.session_state.map_extra_choice = settings[5]
+        st.session_state.restored_form_token = restore_token
 if isinstance(storage_event, dict) and storage_event.get("nonce") != st.session_state.last_storage_nonce:
     st.session_state.last_storage_nonce = storage_event.get("nonce")
     if storage_event.get("error"):
@@ -123,7 +145,7 @@ if isinstance(storage_event, dict) and storage_event.get("nonce") != st.session_
     st.session_state.storage_action = {"op": "list", "nonce": "initial"}
 
 st.title("🧭 Tripreport Verkenner")
-st.caption("Versie 9 · volledige sterren en totalen; extra kaarttellingen naar keuze")
+st.caption("Versie 10 · vorige berekening terugvinden en hervatten")
 st.markdown('<div class="intro"><b>Je afgeronde reis in soorten.</b> Kies je iNaturalist-gebruikersnaam en de begin- en einddatum met tijd. Het reisgebied volgt automatisch uit de locaties van je waarnemingen. De foto’s komen uit jouw openbare waarnemingen.</div>', unsafe_allow_html=True)
 if st.session_state.storage_notice:
     st.info(st.session_state.storage_notice)
@@ -176,6 +198,28 @@ if st.session_state.show_saved:
             except (ValueError, UnicodeError, json.JSONDecodeError) as exc:
                 st.error(f"Importeren is mislukt: {exc}")
 
+if restore_token:
+    restored_job = report_jobs().snapshot(restore_token)
+    with st.container(border=True):
+        st.subheader("Je vorige berekening")
+        if restored_job:
+            st.write(restored_job['message'])
+            if restored_job['state'] == 'running':
+                st.caption("Deze berekening loopt nog. Verdergaan opent dezelfde taak; je hoeft geen nieuwe trip te starten.")
+            if st.button("▶ Verdergaan met vorige berekening", type='primary'):
+                try:
+                    if restored_job['state'] in ('paused','error'):
+                        st.session_state.report_job = report_jobs().resume(restore_token)
+                    else:
+                        st.session_state.report_job = restore_token
+                    st.session_state.loaded_report_job = None
+                    st.query_params['report'] = st.session_state.report_job
+                    st.rerun()
+                except Exception as exc:
+                    st.error(str(exc))
+        else:
+            st.info("Je vorige berekening is niet meer op deze server aanwezig. Laad hieronder je herstartbestand om verder te gaan.")
+
 with st.container(border=True):
     st.subheader("Reis instellen")
     user_col, from_col, to_col = st.columns([2, 1, 1])
@@ -192,14 +236,9 @@ with st.container(border=True):
 
     st.caption("Tijden volgen de lokale tijd van iedere iNaturalist-waarneming. De eindminuut telt volledig mee. "
                "Het gebied wordt de omhullende grens van de openbare locaties met circa 1 km marge.")
-    extended_checks = st.checkbox("Ook nieuw in gebied en nieuw op iNaturalist in de kaartcirkels tonen", value=False,
+    extended_checks = st.checkbox("Ook nieuw in gebied en nieuw op iNaturalist in de kaartcirkels tonen", value=False, key='map_extra_choice',
                                   help="Deze keuze geldt alleen voor de kaart en de PDF-kaart. Totalen en sterren worden altijd volledig gecontroleerd.")
     go = st.button("🔎 Tripreport maken", type="primary", use_container_width=True)
-
-@st.cache_resource
-def report_jobs():
-    return ReportJobs()
-
 
 with st.expander("Berekening hervatten met een herstartbestand"):
     checkpoint_upload = st.file_uploader("Herstartbestand laden", type=['json'], key='checkpoint_upload')
@@ -229,6 +268,7 @@ if go:
         st.session_state.loaded_report_job = None
         st.session_state.trip = None
         st.session_state.query = None
+        st.rerun()
 
 
 @st.fragment(run_every=2)
