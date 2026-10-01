@@ -14,8 +14,9 @@ from streamlit.components.v1 import declare_component
 
 from report_pdf import make_trip_pdf
 from trip_map import select_time_window, observation_points, infer_trip_area, leaflet_heatmap
+from concentrations import concentration_circles, enrich_circles
 from taxonomy import sort_species_overview
-from trip_data import batch_stars, first_record, own_firsts_in_window, personal_species_counts, species_frame, star_for, summary_counts, trip_observations
+from trip_data import batch_stars, first_record, own_firsts_in_window, personal_species_counts, resolve_username, species_frame, star_for, summary_counts, trip_observations
 
 EARLIEST_TRIP_DATE = date(1965, 1, 1)
 
@@ -30,7 +31,7 @@ def make_record(name, search, summary, trip_id=None):
         raise ValueError("Geef de trip een naam van maximaal 120 tekens.")
     names = [*search.get("place_names", []),
              *([search.get("area_name") or "Getekend gebied"] if search.get("geometry") else [])]
-    search = {key: value for key, value in search.items() if key != "heat_points"}
+    search = {key: value for key, value in search.items() if key not in ("heat_points", "concentrations")}
     return {"id": trip_id or str(uuid4()), "name": name, "username": search["username"],
             "start_date": search["start"], "end_date": search["end"],
             "area_label": " of ".join(names) if names else "Wereldwijd",
@@ -201,28 +202,36 @@ if go:
         places = ()
         with st.status("Reisgegevens ophalen…", expanded=True) as status:
             try:
-                candidates = trip_observations(username, start, end)
+                st.write("iNaturalist-gebruikersnaam controleren…")
+                account = resolve_username(username)
+                username = account['login']
+                user_id = account['id']
+                candidates = trip_observations(user_id, start, end)
                 obs, unknown_times = select_time_window(candidates, start, end, start_clock, end_clock)
                 points = observation_points(obs)
                 geometry = infer_trip_area(points)
                 st.write(f"{len(obs):,} openbare waarnemingen gevonden; soorten en taxonomie opbouwen…")
                 frame = species_frame(obs)
+                st.write("Concentraties binnen 25 km bepalen en eerste waarnemingen controleren…")
+                circles, spatial_records = concentration_circles(obs, frame)
+                circle_stats = enrich_circles(circles, spatial_records, user_id, start.isoformat(), end.isoformat())
                 if not frame.empty:
                     st.write("Je totale aantallen per soort ophalen…")
                     try:
-                        counts = personal_species_counts(username, frame["species_id"])
+                        counts = personal_species_counts(user_id, frame["species_id"])
                         frame["Mijn waarnemingen wereldwijd"] = frame["species_id"].map(counts).fillna(0).astype(int)
                     except Exception as exc:
                         frame["Mijn waarnemingen wereldwijd"] = pd.NA
                         st.warning(f"De totale aantallen konden niet worden geladen: {exc}")
                 st.session_state.trip = frame
-                st.session_state.query = {"username": username, "start": start.isoformat(), "end": end.isoformat(),
+                st.session_state.query = {"username": username, "user_id": user_id, "start": start.isoformat(), "end": end.isoformat(),
                                           "places": places, "geometry": json.dumps(geometry, sort_keys=True) if geometry else "",
                                           "selected_places": [], "place_names": (),
                                           "area_name": "Automatisch reisgebied" if geometry else "",
                                           "start_time": start_clock.strftime("%H:%M"),
                                           "end_time": end_clock.strftime("%H:%M"),
                                           "heat_points": points,
+                                          "concentrations": circle_stats,
                                           "missing_location_total": len(obs) - len(points),
                                           "unknown_time_total": unknown_times,
                                           "observation_total": len(obs),
@@ -321,7 +330,7 @@ def show_progressive_grid(current, all_species, meta, summary_slot):
     if not st.session_state.get("slow_mode") and st.session_state.get("own_first_ids") is None:
         try:
             st.session_state.own_first_ids = own_firsts_in_window(
-                meta["username"], date.fromisoformat(meta["start"]),
+                meta.get("user_id", meta["username"]), date.fromisoformat(meta["start"]),
                 date.fromisoformat(meta["end"]), target)
         except Exception:
             st.session_state.own_first_ids = {}  # The per-species fallback remains available.
@@ -331,10 +340,10 @@ def show_progressive_grid(current, all_species, meta, summary_slot):
         try:
             if st.session_state.get("slow_mode"):
                 checked = {int(row["species_id"]): star_for(row["obs_ids"], first_record(
-                    int(row["species_id"]), meta["username"], meta["end"], meta["places"], meta["geometry"]),
+                    int(row["species_id"]), meta.get("user_id", meta["username"]), meta["end"], meta["places"], meta["geometry"]),
                     bool(meta["places"] or meta["geometry"])) for row in batch}
             else:
-                checked = batch_stars(batch, meta["username"], meta["start"], meta["end"], meta["places"], meta["geometry"], st.session_state.own_first_ids)
+                checked = batch_stars(batch, meta.get("user_id", meta["username"]), meta["start"], meta["end"], meta["places"], meta["geometry"], st.session_state.own_first_ids)
             st.session_state.novelty.update(checked)
         except Exception as exc:
             if not st.session_state.get("slow_mode"):
@@ -358,10 +367,13 @@ if frame is not None and meta:
     st.subheader("Waar de waarnemingen waren")
     points = meta.get("heat_points") or []
     if points:
-        st_folium(leaflet_heatmap(points, json.loads(meta["geometry"]) if meta.get("geometry") else None),
+        st_folium(leaflet_heatmap(points, circles=meta.get("concentrations", [])),
                   height=460, use_container_width=True, returned_objects=[], key="trip_heatmap")
-        st.caption(f"{len(points):,} waarnemingen met openbare locatie. Kleuren tonen de relatieve dichtheid; "
-                   "de groene grens is het automatisch bepaalde reisgebied.")
+        st.caption(f"{len(points):,} waarnemingen met openbare locatie. Kleuren tonen de relatieve dichtheid. "
+                   "Cirkels: straal 25 km, minstens 26 waarnemingen. Overlappende cirkels kunnen dezelfde waarnemingen bevatten.")
+        st.caption("Nieuw betekent: de eerste gedateerde iNaturalist-waarneming van een soort ligt in deze cirkel, "
+                   "voor jouw account, het betreffende land of wereldwijd. ≥ … (?) betekent dat de controle onvolledig is. "
+                   "Bij meerdere landen telt een soort eenmaal als die voor minstens één land nieuw is.")
     else:
         st.info("Deze selectie heeft geen openbare locaties; er kan geen heatmap of reisgebied worden bepaald.")
     if meta.get("missing_location_total"):

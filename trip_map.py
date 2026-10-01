@@ -117,21 +117,40 @@ def display_geometry(geometry, points):
     return {'type': geometry['type'], 'coordinates': result[0] if geometry['type'] == 'Polygon' else result}
 
 
-def leaflet_heatmap(points, geometry=None):
+def circle_ring(circle):
+    """Geodesic 25 km circumference, including near poles and the date line."""
+    lat, lon = math.radians(circle['lat']), math.radians(circle['lon'])
+    distance = 25/6371.0088
+    ring = []
+    for bearing in np.linspace(0, 2*math.pi, 97):
+        latitude = math.asin(math.sin(lat)*math.cos(distance)+math.cos(lat)*math.sin(distance)*math.cos(bearing))
+        longitude = lon+math.atan2(math.sin(bearing)*math.sin(distance)*math.cos(lat), math.cos(distance)-math.sin(lat)*math.sin(latitude))
+        ring.append([math.degrees(latitude), math.degrees(longitude)])
+    return ring
+
+
+def leaflet_heatmap(points, geometry=None, circles=None):
     import folium
+    from html import escape
+    from concentrations import circle_lines
     from folium.plugins import HeatMap
     unwrapped = unwrapped_points(points)
     centre = [sum(p[0] for p in unwrapped)/len(unwrapped), sum(p[1] for p in unwrapped)/len(unwrapped)]
     result = folium.Map(location=centre, zoom_start=13, tiles='OpenStreetMap', control_scale=True)
     HeatMap(unwrapped, radius=18, blur=15, min_opacity=.25).add_to(result)
-    bounds = unwrapped
-    if geometry:
-        displayed = display_geometry(geometry, points)
-        polygons = [displayed['coordinates']] if displayed['type'] == 'Polygon' else displayed['coordinates']
-        bounds = [[lat,lon] for polygon in polygons for ring in polygon for lon,lat in ring]
-        folium.GeoJson(displayed, name='Automatisch reisgebied', style_function=lambda _: {
-            'color': '#31764c', 'weight': 2, 'fillOpacity': 0,
-        }).add_to(result)
+    bounds = list(unwrapped)
+    for circle in circles or []:
+        lon = circle['lon']+360*round((centre[1]-circle['lon'])/360)
+        location = [circle['lat'], lon]
+        bounds.extend([[lat, lng+360*round((centre[1]-lng)/360)] for lat,lng in circle_ring(circle)])
+        lines = '<br>'.join(escape(line) for line in circle_lines(circle))
+        folium.Circle(location, radius=25000, color='#5634a5', weight=2, fill=True, fill_opacity=.04,
+                      tooltip=f"Concentratie {circle['number']} · 25 km",
+                      popup=escape(circle.get('countries') or 'Land onbekend')+'<br>'+lines).add_to(result)
+        folium.Marker(location, icon=folium.DivIcon(icon_size=(172,96), icon_anchor=(86,48), html=
+                      '<div style="background:rgba(255,255,255,.88);border:1px solid #5634a5;border-radius:12px;'
+                      'padding:5px;text-align:center;font:12px/16px sans-serif;color:#251745;white-space:nowrap">'
+                      +lines+'</div>')).add_to(result)
     result.fit_bounds([[min(p[0] for p in bounds), min(p[1] for p in bounds)],
                        [max(p[0] for p in bounds), max(p[1] for p in bounds)]], max_zoom=14, padding=[20,20])
     return result
@@ -148,7 +167,7 @@ def _tile(zoom, x, y):
         return None
 
 
-def heatmap_image(points, width=1000, height=600, tile_loader=None):
+def heatmap_image(points, width=1000, height=600, tile_loader=None, circles=None):
     """Return compact PNG and tile-failure count. Same observations as Leaflet."""
     unwrapped = unwrapped_points(points)
     if not unwrapped:
@@ -156,6 +175,9 @@ def heatmap_image(points, width=1000, height=600, tile_loader=None):
     geometry = display_geometry(infer_trip_area(points), points)
     polygons = [geometry['coordinates']] if geometry['type'] == 'Polygon' else geometry['coordinates']
     bounds = [[lat,lon] for polygon in polygons for ring in polygon for lon,lat in ring]
+    centre_lon = sum(p[1] for p in unwrapped)/len(unwrapped)
+    for circle in circles or []:
+        bounds.extend([[lat, lon+360*round((centre_lon-lon)/360)] for lat,lon in circle_ring(circle)])
     def project(lat, lon, zoom):
         lat = max(-85.05112878, min(85.05112878, lat))
         side = 256 * 2**zoom
@@ -205,13 +227,24 @@ def heatmap_image(points, width=1000, height=600, tile_loader=None):
     overlay[:,:,3] = (np.minimum(.82,level)*255).astype('uint8')
     image = Image.alpha_composite(image.convert('RGBA'), Image.fromarray(overlay)).convert('RGB')
     draw = ImageDraw.Draw(image)
-    for polygon in polygons:
-        for ring in polygon:
-            outline = []
-            for lon, lat in ring:
-                px, py = project(lat, lon, zoom)
-                outline.append((round(px-left), round(py-top)))
-            draw.line(outline, fill='#31764c', width=2)
+    from concentrations import circle_lines
+    from PIL import ImageFont
+    font = ImageFont.load_default(size=14)
+    for circle in circles or []:
+        outline = []
+        for lat, lon in circle_ring(circle):
+            lon += 360*round((centre_lon-lon)/360)
+            px, py = project(lat, lon, zoom)
+            outline.append((round(px-left), round(py-top)))
+        draw.line(outline, fill='#5634a5', width=2)
+        lon = circle['lon']+360*round((centre_lon-circle['lon'])/360)
+        x,y = project(circle['lat'], lon, zoom)
+        x,y = x-left,y-top
+        lines = circle_lines(circle)
+        box_width = max(draw.textlength(line, font=font) for line in lines)+12
+        draw.rounded_rectangle((x-box_width/2,y-48,x+box_width/2,y+48), radius=10, fill='white', outline='#5634a5')
+        for i,line in enumerate(lines):
+            draw.text((x-draw.textlength(line,font=font)/2,y-43+i*18),line,fill='#251745',font=font)
     draw.rectangle((0,height-25,width,height), fill='white')
     draw.text((8,height-19), '(c) OpenStreetMap contributors | Blauw: lage dichtheid - rood: hoge dichtheid', fill='#304a39')
     if missing:

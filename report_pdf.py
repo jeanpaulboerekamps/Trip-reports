@@ -167,7 +167,7 @@ def make_trip_pdf(frame, meta, novelty):
     c.setFillColor(MUTED)
     c.drawString(margin, page_h - 69, _fit(f"{meta['username']} · {meta['start']} {meta.get('start_time', '00:00')} t/m {meta['end']} {meta.get('end_time', '23:59')}", page_w-2*margin, size=10))
     points = meta.get('heat_points') or []
-    map_bytes, missing_tiles = heatmap_image(points)
+    map_bytes, missing_tiles = heatmap_image(points, circles=meta.get('concentrations', []))
     if map_bytes:
         c.drawImage(ImageReader(BytesIO(map_bytes)), margin, page_h-410,
                     width=page_w-2*margin, height=(page_w-2*margin)*.6)
@@ -175,7 +175,9 @@ def make_trip_pdf(frame, meta, novelty):
         c.drawString(margin, page_h-120, "Geen openbare locaties beschikbaar voor deze selectie.")
     notes = [f"{len(points):,} waarnemingen met openbare locatie. Kleuren tonen relatieve dichtheid.",
              f"{meta.get('missing_location_total', 0):,} waarnemingen zonder openbare locatie tellen wel mee in het rapport.",
-             "Reisgebied: omhullende grens van de openbare locaties met circa 1 km marge.",
+             "Cirkels: straal 25 km, minimaal 26 waarnemingen. Overlap kan dezelfde waarnemingen bevatten.",
+             "Nieuw: eerste gedateerde waarneming in de cirkel voor jouw account, het land of iNaturalist.",
+             "Bij meerdere landen telt een nieuwe soort eenmaal. >= ... (?) betekent: controle onvolledig.",
              "Tijden zijn de lokale waarnemingstijden; de gekozen eindminuut telt volledig mee."]
     if meta.get('unknown_time_total'):
         notes.append(f"{meta['unknown_time_total']:,} waarnemingen zonder tijdstip op een gedeeltelijke dag niet meegenomen.")

@@ -17,6 +17,10 @@ _lock = threading.Lock()
 _last_request = 0.0
 
 
+class APIQueryError(ValueError):
+    """A rejected query should be corrected instead of retried."""
+
+
 def get(path, params=None):
     global _last_request
     error = None
@@ -32,12 +36,38 @@ def get(path, params=None):
             if response.status_code == 429 or response.status_code >= 500:
                 time.sleep(2 ** attempt)
                 continue
+            if 400 <= response.status_code < 500:
+                user = (params or {}).get('user_id')
+                message = f'iNaturalist wijst de zoekopdracht af (foutcode {response.status_code}).'
+                if user is not None:
+                    message += f" Controleer de iNaturalist-gebruikersnaam of het gebruikersnummer '{user}'."
+                raise APIQueryError(message)
             response.raise_for_status()
             return response.json()
+        except APIQueryError:
+            raise
         except Exception as exc:
             error = exc
             time.sleep(.5 * 2 ** attempt)
     raise RuntimeError(f"iNaturalist kon niet worden bereikt: {error}")
+
+
+def resolve_username(value):
+    """Match an exact login (ignoring case), never choose another account."""
+    name = str(value).strip().casefold()
+    if not name:
+        raise ValueError('Vul een iNaturalist-gebruikersnaam in.')
+    if name.isdigit():
+        rows = get('/users/' + name).get('results') or []
+        matches = [row for row in rows if str(row.get('id')) == name]
+    else:
+        rows = get('/users/autocomplete', {'q': name, 'per_page': 50}).get('results') or []
+        matches = [row for row in rows if str(row.get('login') or '').casefold() == name]
+    if not matches:
+        raise ValueError(f"Geen iNaturalist-account gevonden met gebruikersnaam '{value.strip()}'. "
+                         'Gebruik de exacte gebruikersnaam uit je iNaturalist-profiel, niet je weergavenaam.')
+    account = matches[0]
+    return {'id': int(account['id']), 'login': account['login']}
 
 
 def search_places(query):
@@ -81,7 +111,7 @@ def _compact_observation(o):
             "time_observed_at": o.get("time_observed_at"),
             "observed_time_zone": o.get("observed_time_zone"),
             "time_zone": o.get("time_zone"),
-            "geojson": o.get("geojson"), "quality_grade": o.get("quality_grade"),
+            "geojson": o.get("geojson"), "quality_grade": o.get("quality_grade"), "place_ids": o.get("place_ids") or [],
             "taxon": {k: t.get(k) for k in ("id", "rank", "name", "preferred_common_name", "ancestor_ids")},
             "photos": [{k: photos[0].get(k) for k in ("medium_url", "url")}] if photos else []}
 

@@ -1,10 +1,13 @@
-# Tripreport Verkenner - versie 4
+# Tripreport Verkenner - versie 6
 
 Een Streamlit-app voor afgeronde reizen met openbare iNaturalist-waarnemingen.
 
 ## Gebruik
 
 1. Vul je openbare iNaturalist-gebruikersnaam in.
+   De app controleert de exacte accountnaam voordat waarnemingen worden
+   opgehaald. Hoofdletters en omringende spaties worden genegeerd; typefouten
+   worden gemeld. De zoekacties gebruiken daarna het bevestigde gebruikersnummer.
 2. Kies de begin- en einddatum en de tijden. Datums zijn beschikbaar vanaf
    1 januari 1965. Standaardtijden zijn 00:00 en 23:59. De eindminuut telt
    volledig mee, inclusief seconden. Tijden zijn de lokale tijden per
@@ -19,6 +22,16 @@ Een Streamlit-app voor afgeronde reizen met openbare iNaturalist-waarnemingen.
    alle soorten in de gekozen sorteervolgorde. Er is geen CSV-export meer.
 
 ## Automatisch reisgebied
+
+De groene omgrenzing wordt niet meer getekend. Het gebied blijft intern beschikbaar voor de bestaande oranje sterren.
+
+## Concentraties op de kaart
+
+Kaart en PDF tonen cirkels met een geografische straal van 25 km bij minstens 26 openbare waarnemingen. De dichtste locatie wordt eerst gekozen; andere middelpunten binnen 25 km daarvan krijgen geen extra cirkel. Vervolgens wordt de dichtste overgebleven locatie gekozen. Zo verschijnen niet tientallen identieke cirkels rond dezelfde concentratie. Cirkels kunnen overlappen; tel de aantallen dus niet bij elkaar op.
+
+Elke cirkel toont waarnemingen (ook zonder soortidentificatie), unieke soorten, nieuwe soorten voor jouw account, voor het betreffende land en wereldwijd op iNaturalist. Een soort is nieuw wanneer de eerste gedateerde iNaturalist-waarneming in de betreffende scope een van jouw waarnemingen binnen die cirkel is. Dit is een registratie-eerste, geen wetenschappelijke ontdekking. Landen komen uit de standaard iNaturalist-plaatsen op de waarneming (`admin_level=0`), niet uit het automatische reisgebied. Bij grensoverschrijdende cirkels telt een soort eenmaal als die in minstens één van die landen nieuw is. Ontbrekende landen en mislukte historische controles worden als `>= aantal (?)` getoond; onbekend is niet nul. De historische volgorde volgt iNaturalist `observed_on`, met de door de API gekozen eerste waarneming bij gelijke datums.
+
+Deze extra historische controles kunnen vooral bij veel nieuwe soorten langer duren. Exacte eerste-recordvragen worden in het app-proces gecachet. Bij opnieuw ophalen wordt de controle opnieuw opgebouwd.
 
 De app bepaalt het reisgebied uit de openbare locaties in de gekozen periode.
 Het gebied is de omhullende grens (convexe omhulling) van alle locaties, met
