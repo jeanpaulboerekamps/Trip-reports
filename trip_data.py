@@ -235,6 +235,16 @@ def species_frame(observations):
     return enrich_species_taxonomy(frame, lookup)
 
 
+def refresh_trip_rg(frame, username, start, end, on_page=None):
+    """Current RG status, restricted to observation IDs actually in this trip."""
+    observations = _pages({'user_id':username,'d1':str(start),'d2':str(end),
+                           'quality_grade':'research','order_by':'observed_on','order':'asc'}, on_page)
+    research_ids = {int(o['id']) for o in observations}
+    result = frame.copy()
+    result['Trip RG'] = [bool(set(ids) & research_ids) for ids in result['obs_ids']]
+    return result
+
+
 def personal_species_counts(username, species_ids):
     """Count all of the observer's records for trip species with a few pages."""
     wanted = {int(x) for x in species_ids}

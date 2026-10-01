@@ -12,11 +12,11 @@ import streamlit as st
 from streamlit_folium import st_folium
 from streamlit.components.v1 import declare_component
 
-from report_pdf import make_trip_pdf, pdf_trip_name
+from report_pdf import make_trip_pdf, pdf_trip_name, pdf_filename
 from trip_map import select_time_window, observation_points, infer_trip_area, leaflet_heatmap
 from report_jobs import ReportJobs
 from taxonomy import sort_species_overview
-from trip_data import batch_stars, first_record, own_firsts_in_window, personal_species_counts, resolve_username, species_frame, star_for, summary_counts, trip_observations
+from trip_data import batch_stars, first_record, own_firsts_in_window, personal_species_counts, resolve_username, species_frame, star_for, summary_counts, trip_observations, refresh_trip_rg
 
 EARLIEST_TRIP_DATE = date(1965, 1, 1)
 
@@ -76,11 +76,11 @@ st.markdown("""<style>
 .photo-empty{display:flex;align-items:center;justify-content:center;font-size:2rem}
 .stars{position:absolute;right:10px;top:8px;display:flex;gap:3px;align-items:center}.star{font-size:2rem;line-height:1;text-shadow:0 1px 5px #343a32,0 0 2px #fff}
 .star.red{color:#e3342f}.star.orange{color:#f28b24}.star.yellow{color:#f0cc24}
-.star.yellow.rg{-webkit-text-stroke:1.8px #d22e32;paint-order:stroke fill}
+.species-card.rg{border:3px solid #268348}
 .species-body{padding:.8rem}.species-name{font-weight:750;line-height:1.2}.scientific{font-style:italic;opacity:.72;font-size:.9rem;margin:.18rem 0 .65rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pill{font-size:.8rem;background:rgba(58,130,79,.13);border-radius:30px;padding:.25rem .5rem}
 .legend{display:flex;gap:1rem;flex-wrap:wrap;margin:.7rem 0 1.1rem}.legend span{font-size:.92rem}
-.legend b{font-size:1.35rem;vertical-align:middle}.legend .red{color:#e3342f}.legend .orange{color:#f28b24}.legend .yellow{color:#e3b51e}.legend .yellow.rg{-webkit-text-stroke:1.5px #d22e32;paint-order:stroke fill}
+.legend b{font-size:1.35rem;vertical-align:middle}.legend .red{color:#e3342f}.legend .orange{color:#f28b24}.legend .yellow{color:#e3b51e}
 .trip-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.65rem;margin:.85rem 0 1.4rem}
 .trip-stat{border:1px solid #cfddd3;background:#edf5ef;border-radius:12px;padding:.8rem;min-width:0}
 .trip-stat strong{display:block;font-size:1.55rem;line-height:1.15;color:#1b5035}
@@ -147,7 +147,7 @@ if isinstance(storage_event, dict) and storage_event.get("nonce") != st.session_
     st.session_state.storage_action = {"op": "list", "nonce": "initial"}
 
 st.title("🧭 Tripreport Verkenner")
-st.caption("Versie 12 · verplichte tripnaam en extra foto's achteraan")
+st.caption("Versie 13 · PDF met tripnaam als bestandsnaam en groene RG-kaartranden")
 st.markdown('<div class="intro"><b>Je afgeronde reis in soorten.</b> Kies je iNaturalist-gebruikersnaam en de begin- en einddatum met tijd. Het reisgebied volgt automatisch uit de locaties van je waarnemingen. De foto’s komen uit jouw openbare waarnemingen.</div>', unsafe_allow_html=True)
 if st.session_state.storage_notice:
     st.info(st.session_state.storage_notice)
@@ -343,16 +343,16 @@ def card_html(current):
         badges = []
         for flag, symbol in (("own", "🟡"), ("area", "🟠"), ("global", "🔴")):
             if record.get(flag):
-                outline = " rg" if flag == "own" and rg else ""
-                label = colors[symbol][1] + (" · rode rand: Research Grade tijdens deze reis" if outline else "")
-                badges.append(f'<span class="star {colors[symbol][0]}{outline}" title="{label}" aria-label="{label}">★</span>')
+                label = colors[symbol][1]
+                badges.append(f'<span class="star {colors[symbol][0]}" title="{label}" aria-label="{label}">★</span>')
         if not badges and record.get("star") == "?":
             badges.append('<span class="star" title="Controle niet gelukt">?</span>')
         badge = '<div class="stars">' + ''.join(badges) + '</div>' if badges else ''
         picture = f'<img class="species-photo" src="{photo}" alt="{name}" loading="lazy">' if photo else '<div class="photo-empty">🌿</div>'
         total = row.get("Mijn waarnemingen wereldwijd", pd.NA)
         total_text = f'{int(total):,} totaal' if pd.notna(total) else 'Totaal onbekend'
-        cards.append(f'<article class="species-card"><a href="{url}" target="_blank" rel="noopener"><div class="photo-wrap">{picture}{badge}</div><div class="species-body"><div class="species-name">{name}</div><div class="scientific">{scientific}</div><span class="pill">{int(row["Waarnemingen in gebied"]):,} tijdens reis</span> <span class="pill">{total_text}</span></div></a></article>')
+        card_class = 'species-card rg' if rg else 'species-card'
+        cards.append(f'<article class="{card_class}"><a href="{url}" target="_blank" rel="noopener"><div class="photo-wrap">{picture}{badge}</div><div class="species-body"><div class="species-name">{name}</div><div class="scientific">{scientific}</div><span class="pill">{int(row["Waarnemingen in gebied"]):,} tijdens reis</span> <span class="pill">{total_text}</span></div></a></article>')
     return '<div class="species-grid">' + ''.join(cards) + '</div>'
 
 
@@ -481,6 +481,14 @@ if frame is not None and meta:
                     st.rerun()
             except Exception as exc:
                 st.error(f"Bewaren is mislukt: {exc}")
+    if not frame.empty and st.button("RG-status actualiseren"):
+        with st.spinner("Actuele RG-status van de tripwaarnemingen ophalen…"):
+            try:
+                st.session_state.trip = refresh_trip_rg(frame,meta.get('user_id',meta['username']),meta['start'],meta['end'])
+                st.session_state.pdf_bytes = None
+                st.rerun()
+            except Exception as exc:
+                st.error(f"RG-status kon niet worden geladen: {exc}")
     ordered = frame
     sort_by = "Aantal waarnemingen"
     download_controls = st.empty()
@@ -495,7 +503,7 @@ if frame is not None and meta:
         maximum = len(ordered)
         shown = st.slider("Aantal soorten tonen", 1, maximum, maximum) if maximum > 10 else maximum
         current = ordered.head(shown)
-        st.markdown('<div class="legend"><span><b class="yellow">★</b> Mijn eerste waarneming</span><span><b class="yellow rg">★</b> Eigen eerste met Research Grade tijdens reis</span><span><b class="orange">★</b> Eerste in automatisch reisgebied</span><span><b class="red">★</b> Eerste op iNaturalist</span></div>', unsafe_allow_html=True)
+        st.markdown('<div class="legend"><span><b class="yellow">★</b> Mijn eerste waarneming</span><span><b class="orange">★</b> Eerste in automatisch reisgebied</span><span><b class="red">★</b> Eerste op iNaturalist</span><span>Groene kaartrand: minstens één tripwaarneming is nu Research Grade</span></div>', unsafe_allow_html=True)
         st.caption("Alle toepasselijke sterren staan naast elkaar, onafhankelijk van de kaartkeuze. Bij een te groot historisch kaartgebied kan de oranje ster onbekend blijven.")
         show_progressive_grid(current, ordered, meta, summary_slot)
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", meta["username"])
@@ -514,7 +522,7 @@ if frame is not None and meta:
                     st.error(f"De PDF kon niet worden gemaakt: {exc}")
         if st.session_state.get("pdf_bytes") and st.session_state.get("pdf_key") == pdf_key:
             st.download_button("⬇️ PDF downloaden", st.session_state.pdf_bytes,
-                               f"tripreport_{safe}_{meta['start']}_{meta['end']}.pdf", "application/pdf")
+                               pdf_filename(trip_title), "application/pdf")
     unclassified = meta.get('unidentified_records') or []
     if unclassified:
         st.subheader(f"Nog niet op soort geïdentificeerd ({len(unclassified):,} waarnemingen)")

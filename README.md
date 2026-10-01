@@ -1,4 +1,4 @@
-# Tripreport Verkenner - versie 12
+# Tripreport Verkenner - versie 13
 
 Een Streamlit-app voor openbare iNaturalist-waarnemingen tijdens een reis.
 
@@ -10,7 +10,7 @@ Een Streamlit-app voor openbare iNaturalist-waarnemingen tijdens een reis.
 4. Klik **Tripreport maken**. De voortgang vermeldt de actieve stap.
 5. De app begint met de heatmap en 25 km-cirkels, gevolgd door samenvatting en soortenkaarten met eigen foto's. De PDF begint met de bewaarde tripnaam, direct gevolgd door de samenvatting en dan de kaart op de eerste pagina. De toelichting onder de kaart is verwijderd. Daarna volgen fotopagina's met vier kolommen en vier rijen (16 soorten per volle pagina), in de gekozen soortenvolgorde. Er is geen CSV-export.
 
-Bovenaan de app staat **Versie 12**, zodat je kunt controleren of de nieuwe bestanden zijn gedeployed. Bestaande trips uit eerdere versies blijven bruikbaar. De PDF gebruikt de ingevulde tripnaam of vindt de passende bewaarde naam terug. Oude herstartbestanden zonder naam blijven laadbaar.
+Bovenaan de app staat **Versie 13**, zodat je kunt controleren of de nieuwe bestanden zijn gedeployed. Bestaande trips uit eerdere versies blijven bruikbaar. De PDF gebruikt de ingevulde tripnaam of vindt de passende bewaarde naam terug. De download heet exact de tripnaam met .pdf; tekens die niet in een bestandsnaam mogen worden door een underscore vervangen. Oude herstartbestanden zonder naam blijven laadbaar.
 
 ## Waarnemingen zonder soortidentificatie
 
@@ -26,7 +26,7 @@ De cirkels tonen slechts drie aantallen: waarnemingen, unieke soorten en soorten
 
 Zonder de kaartkeuze tonen cirkels drie aantallen. Met de kaartkeuze komen nieuw in het automatische reisgebied en nieuw op iNaturalist erbij. Dit geldt in de app en de PDF. De extra cirkeltellingen gebruiken de IDs van de eerste waarnemingen uit de altijd uitgevoerde stercontrole. De eerste waarneming moet daadwerkelijk binnen de betreffende cirkel vallen; een eerste elders tijdens de reis telt niet in deze cirkel. Onvolledige controles tonen `>= aantal (?)`; onbekend is niet nul. De gebiedstelling is voor het automatische reisgebied, niet voor het hele land.
 
-Gele, oranje en rode sterren en de persoonlijke/gebieds-/wereldtellingen in de samenvatting worden altijd gecontroleerd, onafhankelijk van de kaartkeuze. Geel geeft jouw eerste waarneming; een rode rand om geel betekent Research Grade tijdens de reis. Oranje betekent eerste in automatisch reisgebied; rood betekent eerste op iNaturalist. Deze volledige historische controles kunnen minuten kosten en worden tussentijds opgeslagen per groep. De keuze voor extra kaarttellingen verandert alleen wat de cirkels tonen.
+Gele, oranje en rode sterren en de persoonlijke/gebieds-/wereldtellingen in de samenvatting worden altijd gecontroleerd, onafhankelijk van de kaartkeuze. Geel geeft jouw eerste waarneming. De rode rand om de gele ster is verwijderd. Oranje betekent eerste in automatisch reisgebied; rood betekent eerste op iNaturalist. Deze volledige historische controles kunnen minuten kosten en worden tussentijds opgeslagen per groep. De keuze voor extra kaarttellingen verandert alleen wat de cirkels tonen.
 
 ## Onderbreken en hervatten
 
@@ -65,3 +65,9 @@ API-verzoeken behouden de bestaande globale wachttijd van circa één seconde tu
 ## Grotere kaart
 
 De interactieve kaart is 680 pixels hoog en past het gebied met kleinere buitenmarges. De PDF-kaart staat onder de tripnaam en samenvatting op de eerste pagina. Cirkelteksten zijn kleiner; popups in de app blijven beschikbaar voor details. Alle waarnemingen en cirkels blijven in beeld. Bij een wijziging van alleen de kaartkeuze hergebruikt de server de eerder opgehaalde reisgegevens en stercontroles als het herstartpunt nog beschikbaar is.
+
+## Actuele Research Grade
+
+Een groene rand om de hele soortenkaart betekent dat minstens één van de waarnemingen uit de gekozen trip nu Research Grade is. Dit staat los van de gele/oranje/rode sterren en geldt in de app en PDF. De waarneming hoeft tijdens de reis nog geen RG te zijn geweest. Een waarneming buiten de gekozen trip telt niet mee, ook niet als die van dezelfde soort is.
+
+Bij een nieuwe berekening wordt de huidige RG-status na de stercontroles opnieuw opgehaald. Een eerder bewaard of geladen rapport kan een oudere status hebben: klik **RG-status actualiseren** om alleen deze status te vernieuwen en maak daarna opnieuw de PDF. Een mislukte verversing behoudt de oudere status en geeft een melding.

@@ -2,6 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 import math
+import re
 
 import requests
 from reportlab.lib import colors
@@ -17,6 +18,12 @@ INK = colors.HexColor("#173d2e")
 MUTED = colors.HexColor("#607468")
 PALE = colors.HexColor("#edf5ef")
 BORDER = colors.HexColor("#d2dfd5")
+RG_BORDER = colors.HexColor('#268348')
+
+
+def pdf_filename(trip_name):
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', str(trip_name or 'Tripreport')).strip().rstrip('.')
+    return (name or 'Tripreport') + '.pdf'
 
 
 def pdf_trip_name(entered_name, saved_rows, meta, saved_id=None):
@@ -79,8 +86,10 @@ def _draw_star(c, cx, cy, fill, outline=None):
 
 def _draw_card(c, row, novelty, photo_bytes, x, y, width, height):
     c.setFillColor(colors.white)
-    c.setStrokeColor(BORDER)
+    c.setStrokeColor(RG_BORDER if row.get('Trip RG') else BORDER)
+    c.setLineWidth(2 if row.get('Trip RG') else .6)
     c.roundRect(x, y, width, height, 8, fill=1, stroke=1)
+    c.setLineWidth(.6)
     image_h = 98
     c.setFillColor(PALE)
     c.roundRect(x + 5, y + height - image_h - 5, width - 10, image_h, 5, fill=1, stroke=0)
@@ -103,8 +112,7 @@ def _draw_card(c, row, novelty, photo_bytes, x, y, width, height):
     active = [(flag, color) for flag, color in star_colors if record.get(flag)]
     for i, (flag, color) in enumerate(active):
         _draw_star(c, x + width - 17 - (len(active) - 1 - i) * 21,
-                   y + height - 17, color,
-                   colors.HexColor("#d22e32") if flag == "own" and row.get("Trip RG") else None)
+                   y + height - 17, color)
     tx = x + 9
     c.setFillColor(INK)
     c.setFont("Helvetica-Bold", 9)
@@ -180,7 +188,7 @@ def make_trip_pdf(frame, meta, novelty):
             c.setFont("Helvetica", 8)
             c.drawString(margin, page_h - 235, "Ster: geel = eigen eerste · oranje = eerste in gebied · rood = eerste op iNaturalist" if extended
                          else "Ster: geel = jouw eerste. Uitgebreide gebieds- en wereldcontroles staan uit.")
-            c.drawString(margin, page_h - 247, "Rode rand om geel = Research Grade tijdens de reis. Foto's komen uit de eigen waarnemingen.")
+            c.drawString(margin, page_h - 247, "Groene kaartrand: minstens één tripwaarneming is nu Research Grade. Foto's zijn van jou.")
         c.setStrokeColor(BORDER)
         c.line(margin, 27, page_w - margin, 27)
         c.setFont("Helvetica", 8)

@@ -11,7 +11,7 @@ import time
 from uuid import uuid4
 import pandas as pd
 from concentrations import concentration_circles, personal_circles, full_circles
-from trip_data import resolve_username, trip_observations, species_frame, personal_species_counts, own_firsts_in_window, batch_stars, _prior_species
+from trip_data import resolve_username, trip_observations, species_frame, personal_species_counts, own_firsts_in_window, batch_stars, _prior_species, refresh_trip_rg
 from trip_map import observation_points, select_time_window, infer_trip_area
 
 
@@ -122,6 +122,12 @@ def build_report(search, progress, checkpoint=None, save=None):
             circles, records = concentration_circles(observations, frame)
             return full_circles(circles, records, novelty, firsts)
         meta['concentrations'] = stage('map_circles_v9', 'Extra kaarttellingen samenstellen…', map_stats)
+    if not frame.empty:
+        progress('Actuele Research Grade-status van tripwaarnemingen ophalen…')
+        try:
+            frame = refresh_trip_rg(frame,user,meta['start'],meta['end'])
+        except Exception as exc:
+            warnings.append(f'RG-status kon niet worden ververst; de eerder opgehaalde status wordt gebruikt: {exc}')
     return {'frame': frame, 'meta': meta, 'novelty': novelty, 'firsts': firsts, 'warnings': warnings}
 
 
