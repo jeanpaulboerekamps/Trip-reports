@@ -1,4 +1,4 @@
-# Tripreport Verkenner - versie 10
+# Tripreport Verkenner - versie 11
 
 Een Streamlit-app voor openbare iNaturalist-waarnemingen tijdens een reis.
 
@@ -8,9 +8,9 @@ Een Streamlit-app voor openbare iNaturalist-waarnemingen tijdens een reis.
 2. Kies datums (vanaf 1965) en tijden. Standaard 00:00 tot 23:59; de eindminuut telt volledig mee. De tijd is lokaal per waarneming.
 3. Kies of **nieuw in gebied en nieuw op iNaturalist** ook in de kaartcirkels moeten staan. Deze keuze geldt alleen voor de kaart. Sterren en totalen worden altijd volledig gecontroleerd.
 4. Klik **Tripreport maken**. De voortgang vermeldt de actieve stap.
-5. Het rapport begint met de heatmap en 25 km-cirkels, gevolgd door samenvatting en soortenkaarten met eigen foto's. De PDF gebruikt dezelfde cirkels en gekozen soortenvolgorde. Er is geen CSV-export.
+5. De app begint met de heatmap en 25 km-cirkels, gevolgd door samenvatting en soortenkaarten met eigen foto's. De PDF begint met de bewaarde tripnaam, direct gevolgd door de samenvatting en dan de kaart op de eerste pagina. De toelichting onder de kaart is verwijderd. Daarna volgen fotopagina's met vier kolommen en vier rijen (16 soorten per volle pagina), in de gekozen soortenvolgorde. Er is geen CSV-export.
 
-Bovenaan de app staat **Versie 10**, zodat je kunt controleren of de nieuwe bestanden zijn gedeployed. Bestaande trips uit eerdere versies blijven bruikbaar.
+Bovenaan de app staat **Versie 11**, zodat je kunt controleren of de nieuwe bestanden zijn gedeployed. Bestaande trips uit eerdere versies blijven bruikbaar. De PDF gebruikt de ingevulde tripnaam of vindt de passende bewaarde naam terug; zonder naam gebruikt hij Tripreport.
 
 ## Snelle cirkels en persoonlijke eerste soorten
 
@@ -58,4 +58,4 @@ API-verzoeken behouden de bestaande globale wachttijd van circa één seconde tu
 
 ## Grotere kaart
 
-De interactieve kaart is 680 pixels hoog en past het gebied met kleinere buitenmarges. De PDF-kaart beslaat bijna de hele eerste pagina. Cirkelteksten zijn kleiner; popups in de app blijven beschikbaar voor details. Alle waarnemingen en cirkels blijven in beeld. Bij een wijziging van alleen de kaartkeuze hergebruikt de server de eerder opgehaalde reisgegevens en stercontroles als het herstartpunt nog beschikbaar is.
+De interactieve kaart is 680 pixels hoog en past het gebied met kleinere buitenmarges. De PDF-kaart staat onder de tripnaam en samenvatting op de eerste pagina. Cirkelteksten zijn kleiner; popups in de app blijven beschikbaar voor details. Alle waarnemingen en cirkels blijven in beeld. Bij een wijziging van alleen de kaartkeuze hergebruikt de server de eerder opgehaalde reisgegevens en stercontroles als het herstartpunt nog beschikbaar is.

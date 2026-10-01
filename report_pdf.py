@@ -19,6 +19,24 @@ PALE = colors.HexColor("#edf5ef")
 BORDER = colors.HexColor("#d2dfd5")
 
 
+def pdf_trip_name(entered_name, saved_rows, meta, saved_id=None):
+    """Resolve the saved name when returning without Streamlit Session State."""
+    if str(entered_name or '').strip():
+        return str(entered_name).strip()
+    if saved_id:
+        for row in saved_rows:
+            if row.get('id') == saved_id:
+                return row['name']
+    for row in reversed(saved_rows):
+        search = row.get('search') or {}
+        if (str(search.get('username','')).casefold() == str(meta.get('username','')).casefold()
+                and all(search.get(key) == meta.get(key) for key in ('start','end','geometry'))
+                and search.get('start_time','00:00') == meta.get('start_time','00:00')
+                and search.get('end_time','23:59') == meta.get('end_time','23:59')):
+            return row['name']
+    return 'Tripreport'
+
+
 def _photo(url):
     if not url:
         return None
@@ -99,7 +117,7 @@ def _draw_card(c, row, novelty, photo_bytes, x, y, width, height):
     total = row.get("Mijn waarnemingen wereldwijd")
     total_text = str(int(total)) if total is not None and str(total) not in ("<NA>", "nan") else "?"
     c.setFont("Helvetica", 7.5)
-    c.drawString(tx, y + 13, f"Reis: {int(row['Waarnemingen in gebied'])}   Mijn totaal: {total_text}")
+    c.drawString(tx, y + 13, _fit(f"Reis: {int(row['Waarnemingen in gebied'])} · Totaal: {total_text}", width-18, size=7.5))
     url = str(row.get("iNaturalist") or "")
     if url.startswith("https://"):
         c.linkURL(url, (x, y, x + width, y + height), relative=0)
@@ -109,10 +127,11 @@ def make_trip_pdf(frame, meta, novelty):
     """Return PDF bytes for the full sorted report, including own thumbnails."""
     out = BytesIO()
     c = canvas.Canvas(out, pagesize=A4, pageCompression=1)
-    c.setTitle(f"Tripreport {meta['username']} {meta['start']} - {meta['end']}")
+    title = str(meta.get('trip_name') or 'Tripreport').strip()
+    c.setTitle(title)
     page_w, page_h = A4
     margin, gutter, card_h = 35, 8, 161
-    card_w = (page_w - 2 * margin - 2 * gutter) / 3
+    card_w = (page_w - 2 * margin - 3 * gutter) / 4
     rows = list(frame.to_dict("records"))
     with ThreadPoolExecutor(max_workers=8) as pool:
         photos = list(pool.map(_photo, [str(row.get("Foto") or "") for row in rows]))
@@ -122,7 +141,12 @@ def make_trip_pdf(frame, meta, novelty):
     def page_header(page_no, with_summary=False):
         c.setFillColor(INK)
         c.setFont("Helvetica-Bold", 20 if with_summary else 13)
-        c.drawString(margin, page_h - 49, "Tripreport" if with_summary else f"Tripreport · {meta['username']}")
+        heading = title if with_summary else f"{title} · {meta['username']}"
+        heading_size = 20 if with_summary else 13
+        while heading_size > 9 and stringWidth(heading, 'Helvetica-Bold', heading_size) > page_w-2*margin:
+            heading_size -= .5
+        c.setFont('Helvetica-Bold', heading_size)
+        c.drawString(margin, page_h - 49, _fit(heading, page_w-2*margin, 'Helvetica-Bold', heading_size))
         if with_summary:
             c.setFont("Helvetica", 10)
             c.setFillColor(MUTED)
@@ -161,50 +185,32 @@ def make_trip_pdf(frame, meta, novelty):
         c.setFillColor(MUTED)
         c.drawRightString(page_w - margin, 15, f"Pagina {page_no}")
 
-    # The map is the first output page, ahead of summary and species photos.
-    c.setFillColor(INK)
-    c.setFont("Helvetica-Bold", 20)
-    c.drawString(margin, page_h - 49, "Waar de waarnemingen waren")
-    c.setFont("Helvetica", 10)
-    c.setFillColor(MUTED)
-    c.drawString(margin, page_h - 69, _fit(f"{meta['username']} · {meta['start']} {meta.get('start_time', '00:00')} t/m {meta['end']} {meta.get('end_time', '23:59')}", page_w-2*margin, size=10))
+    # First page: saved trip name, summary, then the map.
+    page_header(1, with_summary=True)
     points = meta.get('heat_points') or []
-    map_bytes, missing_tiles = heatmap_image(points, width=1200, height=1260, circles=meta.get('concentrations', []))
+    map_bytes, _ = heatmap_image(points, width=1200, height=1160, circles=meta.get('concentrations', []))
     if map_bytes:
-        map_height = (page_w-2*margin)*1.05
-        c.drawImage(ImageReader(BytesIO(map_bytes)), margin, page_h-95-map_height,
-                    width=page_w-2*margin, height=map_height)
+        c.drawImage(ImageReader(BytesIO(map_bytes)), margin, 50,
+                    width=page_w-2*margin, height=page_h-320)
     else:
-        c.drawString(margin, page_h-120, "Geen openbare locaties beschikbaar voor deze selectie.")
-    notes = [f"{len(points):,} waarnemingen met openbare locatie. Kleuren tonen relatieve dichtheid.",
-             f"{meta.get('missing_location_total', 0):,} waarnemingen zonder openbare locatie tellen wel mee in het rapport.",
-             "Cirkels: straal 25 km, minimaal 26 waarnemingen. Overlap kan dezelfde waarnemingen bevatten.",
-             "Cirkels tonen waarnemingen, soorten en soorten nieuw voor jou" +
-             (", in gebied en op iNaturalist." if meta.get('map_extended_checks') else "."),
-             "Nieuw: jouw eerste gedateerde waarneming ligt in de cirkel. >= ... (?) betekent: controle onvolledig.",
-             "Tijden zijn de lokale waarnemingstijden; de gekozen eindminuut telt volledig mee."]
-    if meta.get('unknown_time_total'):
-        notes.append(f"{meta['unknown_time_total']:,} waarnemingen zonder tijdstip op een gedeeltelijke dag niet meegenomen.")
-    if missing_tiles:
-        notes.append("De achtergrondkaart kon niet volledig worden opgehaald; de heatmap is wel compleet.")
-    c.setFont('Helvetica', 8)
-    for i, note in enumerate(notes):
-        c.drawString(margin, page_h-671-i*14, _fit(note, page_w-2*margin, size=8))
-    c.drawRightString(page_w-margin, 15, 'Pagina 1')
-    c.showPage()
-    page_no = 2
-    page_header(page_no, with_summary=True)
-    start_y = page_h - 270
-    for i, row in enumerate(rows):
-        if i and i % 3 == 0:
-            start_y -= card_h + gutter
-        if start_y - card_h < 40:
-            c.showPage()
-            page_no += 1
-            page_header(page_no)
-            start_y = page_h - 72
-        col = i % 3
-        x = margin + col * (card_w + gutter)
-        _draw_card(c, row, novelty, photos[i], x, start_y - card_h, card_w, card_h)
+        c.setFillColor(MUTED)
+        c.drawString(margin, page_h-290, "Geen openbare locaties beschikbaar voor deze selectie.")
+    # Species cards start on page two, four columns and four rows per full page.
+    if rows:
+        c.showPage()
+        page_no = 2
+        page_header(page_no)
+        start_y = page_h - 72
+        for i, row in enumerate(rows):
+            if i and i % 4 == 0:
+                start_y -= card_h + gutter
+            if start_y - card_h < 40:
+                c.showPage()
+                page_no += 1
+                page_header(page_no)
+                start_y = page_h - 72
+            col = i % 4
+            x = margin + col * (card_w + gutter)
+            _draw_card(c, row, novelty, photos[i], x, start_y - card_h, card_w, card_h)
     c.save()
     return out.getvalue()
