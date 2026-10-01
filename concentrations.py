@@ -53,7 +53,7 @@ def first_id(sid, end, user=None, country=None):
     return row['id'] if row else 0
 
 
-def enrich_circles(circles, records, user, start, end, progress=None):
+def enrich_circles(circles, records, user, start, end, progress=None, own_window_firsts=None):
     if not circles:
         return []
     selected = {i for c in circles for i in c['members']}
@@ -61,6 +61,8 @@ def enrich_circles(circles, records, user, start, end, progress=None):
     countries = {}
     country_lookup_complete = True
     for offset in range(0, len(place_ids), 50):
+        if progress:
+            progress(f'Landen controleren: {offset} van {len(place_ids)} plaatsen')
         try:
             rows = get('/places/' + ','.join(map(str, place_ids[offset:offset+50])), {'admin_level': 0}).get('results', [])
             countries.update({p['id']: p.get('display_name') or p.get('name') or str(p['id'])
@@ -78,16 +80,30 @@ def enrich_circles(circles, records, user, start, end, progress=None):
     history = {}
     cutoff = (date.fromisoformat(start)-timedelta(days=1)).isoformat()
     for kind, owner, country, ids in scopes:
+        label = {'own': 'Nieuw voor mij', 'global': 'Nieuw op iNaturalist', 'country': 'Nieuw voor land'}[kind]
         filters = {'user_id': owner} if owner is not None else {'place_id': country} if country is not None else {}
         try:
             ordered_ids = sorted(ids)
             old = set()
             for offset in range(0, len(ordered_ids), 80):
+                if progress:
+                    progress(f'{label}: historische groepscontrole {offset} van {len(ordered_ids)} soorten')
                 old.update(_prior_species(ordered_ids[offset:offset+80], cutoff, **filters))
         except Exception:
-            old = set()  # Exact first-record queries still establish the result.
+            # A failed batch must not silently cause hundreds of slow individual requests.
+            for sid in ids-old:
+                history[kind, country, sid] = None
+            for sid in old:
+                history[kind, country, sid] = 0
+            continue
         for sid in old:
             history[kind, country, sid] = 0
+        if kind == 'own' and own_window_firsts is not None:
+            for sid in ids-old:
+                history[kind, country, sid] = own_window_firsts.get(sid)
+            if progress:
+                progress(f'{label}: {len(ids)} soorten gecontroleerd met al opgehaalde waarnemingen')
+            continue
         def check(sid):
             try:
                 value = first_id(sid, end, owner, country)
@@ -95,10 +111,10 @@ def enrich_circles(circles, records, user, start, end, progress=None):
                 value = None
             return sid, value
         with ThreadPoolExecutor(max_workers=4) as pool:
-            for sid, value in pool.map(check, sorted(ids-old)):
+            for done, (sid, value) in enumerate(pool.map(check, sorted(ids-old)), 1):
                 history[kind, country, sid] = value
                 if progress:
-                    progress(kind)
+                    progress(f'{label}: eerste waarneming {done} van {len(ids-old)} kandidaten')
     result = []
     for number, circle in enumerate(circles, 1):
         members = [records[i] for i in circle['members']]
@@ -128,6 +144,24 @@ def enrich_circles(circles, records, user, start, end, progress=None):
 
 
 def circle_lines(circle):
-    return [f"{circle['observations']} waarnemingen", f"{circle['species']} soorten",
-            f"{circle.get('own', '?')} nieuw voor mij", f"{circle.get('country', '?')} nieuw voor land",
-            f"{circle.get('global', '?')} nieuw op iNaturalist"]
+    lines = [f"{circle['observations']} waarnemingen", f"{circle['species']} soorten",
+             f"{circle.get('own', '?')} nieuw voor mij"]
+    if 'country' in circle:
+        lines.append(f"{circle['country']} nieuw voor land")
+    if 'global' in circle:
+        lines.append(f"{circle['global']} nieuw op iNaturalist")
+    return lines
+
+
+def personal_circles(circles, records, novelty, firsts):
+    """Reuse the trip-wide personal check; no country or global API calls."""
+    result = []
+    for number, circle in enumerate(circles, 1):
+        members = [records[i] for i in circle['members']]
+        ids = {r['id'] for r in members}
+        species = {r['species'] for r in members if r['species'] is not None}
+        count = sum(novelty.get(sid, {}).get('own') is True and firsts.get(sid) in ids for sid in species)
+        unknown = any(novelty.get(sid, {}).get('own') is None for sid in species)
+        result.append({k:v for k,v in circle.items() if k != 'members'} | {
+            'number': number, 'own': f'>={count} (?)' if unknown else str(count)})
+    return result

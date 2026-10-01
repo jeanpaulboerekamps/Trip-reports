@@ -14,7 +14,7 @@ from streamlit.components.v1 import declare_component
 
 from report_pdf import make_trip_pdf
 from trip_map import select_time_window, observation_points, infer_trip_area, leaflet_heatmap
-from concentrations import concentration_circles, enrich_circles
+from report_jobs import ReportJobs
 from taxonomy import sort_species_overview
 from trip_data import batch_stars, first_record, own_firsts_in_window, personal_species_counts, resolve_username, species_frame, star_for, summary_counts, trip_observations
 
@@ -38,7 +38,11 @@ def make_record(name, search, summary, trip_id=None):
             "search": search, "summary": summary}
 
 def summary_snapshot(frame, meta, novelty, counter):
-    counts = counter(novelty, frame["species_id"], bool(meta["places"] or meta["geometry"]))
+    extended = meta.get("extended_checks", True)
+    counts = counter(novelty, frame["species_id"], extended and bool(meta["places"] or meta["geometry"]))
+    if not extended:
+        counts.update(area=None)
+        counts['global'] = None
     return {"observations": int(meta["observation_total"]),
             "unidentified": int(meta.get("unidentified_total", 0)),
             "species": len(frame), "own": counts["own"], "area": counts["area"],
@@ -123,6 +127,7 @@ if isinstance(storage_event, dict) and storage_event.get("nonce") != st.session_
     st.session_state.storage_action = {"op": "list", "nonce": "initial"}
 
 st.title("🧭 Tripreport Verkenner")
+st.caption("Versie 8 · snelle persoonlijke telling en berekening hervatten")
 st.markdown('<div class="intro"><b>Je afgeronde reis in soorten.</b> Kies je iNaturalist-gebruikersnaam en de begin- en einddatum met tijd. Het reisgebied volgt automatisch uit de locaties van je waarnemingen. De foto’s komen uit jouw openbare waarnemingen.</div>', unsafe_allow_html=True)
 if st.session_state.storage_notice:
     st.info(st.session_state.storage_notice)
@@ -143,7 +148,7 @@ if st.session_state.show_saved:
                 st.caption("Gebied: " + row["area_label"])
                 summary = row["summary"]
                 st.write(f"{summary['observations']} waarnemingen · {summary['species']} soorten · {summary['unidentified']} niet op soort · "
-                         f"{summary['own']} nieuw voor mij · {summary['area'] if summary['area'] is not None else '—'} nieuw in gebied · {summary['global']} nieuw op iNaturalist")
+                         f"{summary['own']} nieuw voor mij · {summary['area'] if summary['area'] is not None else '—'} nieuw in gebied · {summary['global'] if summary['global'] is not None else '—'} nieuw op iNaturalist")
                 if st.button("Zoekkenmerken laden", key="load_" + row["id"]):
                     saved = row["search"]
                     st.session_state.trip_username = saved["username"]
@@ -191,7 +196,29 @@ with st.container(border=True):
 
     st.caption("Tijden volgen de lokale tijd van iedere iNaturalist-waarneming. De eindminuut telt volledig mee. "
                "Het gebied wordt de omhullende grens van de openbare locaties met circa 1 km marge.")
+    extended_checks = st.checkbox("Uitgebreide oranje en rode stercontrole (kan veel langer duren)", value=False,
+                                  help="Standaard worden alleen jouw persoonlijke eerste soorten gecontroleerd. De cirkels tonen drie aantallen.")
     go = st.button("🔎 Tripreport maken", type="primary", use_container_width=True)
+
+@st.cache_resource
+def report_jobs():
+    return ReportJobs()
+
+
+with st.expander("Berekening hervatten met een herstartbestand"):
+    checkpoint_upload = st.file_uploader("Herstartbestand laden", type=['json'], key='checkpoint_upload')
+    if st.button("Berekening uit bestand hervatten", disabled=checkpoint_upload is None):
+        try:
+            token = report_jobs().import_checkpoint(checkpoint_upload.getvalue())
+            st.session_state.report_job = token
+            st.session_state.loaded_report_job = None
+            st.session_state.trip = None
+            st.session_state.query = None
+            st.query_params['report'] = token
+            st.rerun()
+        except Exception as exc:
+            st.error(f"Hervatten is mislukt: {exc}")
+
 
 if go:
     if not username:
@@ -199,59 +226,67 @@ if go:
     elif datetime.combine(start, start_clock) > datetime.combine(end, end_clock):
         st.error("De einddatum en -tijd moeten op of na het begin liggen.")
     else:
-        places = ()
-        with st.status("Reisgegevens ophalen…", expanded=True) as status:
+        token = report_jobs().start((username, start.isoformat(), end.isoformat(),
+                                     start_clock.strftime("%H:%M"), end_clock.strftime("%H:%M"), extended_checks))
+        st.session_state.report_job = token
+        st.query_params["report"] = token
+        st.session_state.loaded_report_job = None
+        st.session_state.trip = None
+        st.session_state.query = None
+
+
+@st.fragment(run_every=2)
+def follow_report_job(token):
+    job = report_jobs().snapshot(token)
+    if job is None:
+        st.info("Deze berekening is niet meer op de server beschikbaar. Laad je herstartbestand of klik op Tripreport maken.")
+        return
+    checkpoint_data = report_jobs().export_checkpoint(token)
+    if checkpoint_data:
+        st.download_button("Herstartbestand downloaden", checkpoint_data, 'tripreport-herstart.json', 'application/json',
+                           key='checkpoint_download_'+token)
+        st.caption("Download dit bestand om na verlies van de serveropslag vanaf dit opgeslagen punt verder te gaan.")
+    if job['state'] in ('paused', 'error'):
+        st.warning("Laatste opgeslagen stap: " + job['message'])
+        if st.button("Berekening hervatten", key='resume_'+token):
             try:
-                st.write("iNaturalist-gebruikersnaam controleren…")
-                account = resolve_username(username)
-                username = account['login']
-                user_id = account['id']
-                candidates = trip_observations(user_id, start, end)
-                obs, unknown_times = select_time_window(candidates, start, end, start_clock, end_clock)
-                points = observation_points(obs)
-                geometry = infer_trip_area(points)
-                st.write(f"{len(obs):,} openbare waarnemingen gevonden; soorten en taxonomie opbouwen…")
-                frame = species_frame(obs)
-                st.write("Concentraties binnen 25 km bepalen en eerste waarnemingen controleren…")
-                circles, spatial_records = concentration_circles(obs, frame)
-                circle_stats = enrich_circles(circles, spatial_records, user_id, start.isoformat(), end.isoformat())
-                if not frame.empty:
-                    st.write("Je totale aantallen per soort ophalen…")
-                    try:
-                        counts = personal_species_counts(user_id, frame["species_id"])
-                        frame["Mijn waarnemingen wereldwijd"] = frame["species_id"].map(counts).fillna(0).astype(int)
-                    except Exception as exc:
-                        frame["Mijn waarnemingen wereldwijd"] = pd.NA
-                        st.warning(f"De totale aantallen konden niet worden geladen: {exc}")
-                st.session_state.trip = frame
-                st.session_state.query = {"username": username, "user_id": user_id, "start": start.isoformat(), "end": end.isoformat(),
-                                          "places": places, "geometry": json.dumps(geometry, sort_keys=True) if geometry else "",
-                                          "selected_places": [], "place_names": (),
-                                          "area_name": "Automatisch reisgebied" if geometry else "",
-                                          "start_time": start_clock.strftime("%H:%M"),
-                                          "end_time": end_clock.strftime("%H:%M"),
-                                          "heat_points": points,
-                                          "concentrations": circle_stats,
-                                          "missing_location_total": len(obs) - len(points),
-                                          "unknown_time_total": unknown_times,
-                                          "observation_total": len(obs),
-                                          "unidentified_total": len(obs) - int(frame["Waarnemingen in gebied"].sum())}
-                previous = st.session_state.saved_search
-                if previous and (any(st.session_state.query[k] != previous.get(k) for k in
-                                     ("username", "start", "end", "start_time", "end_time", "geometry")) or
-                                 tuple(st.session_state.query["places"]) != tuple(previous.get("places", []))):
-                    st.session_state.saved_trip_id = None
-                    st.session_state.saved_search = None
-                st.session_state.novelty = {}
-                st.session_state.own_first_ids = None
-                st.session_state.pdf_bytes = None
-                st.session_state.pdf_key = None
-                st.session_state.bulk_failed = False
-                st.session_state.slow_mode = False
-                status.update(label="Tripreport gereed", state="complete")
+                st.session_state.report_job = report_jobs().resume(token)
+                st.rerun()
             except Exception as exc:
-                status.update(label="Ophalen mislukt", state="error")
                 st.error(str(exc))
+        return
+    if job["state"] == "error":
+        st.error("Ophalen mislukt: " + job["message"])
+        return
+    if job["state"] == "running":
+        st.info(job["message"])
+        st.caption("De berekening gaat op de server verder als je dit scherm verlaat. Keer terug via dezelfde URL.")
+        return
+    if st.session_state.get("loaded_report_job") == token:
+        return
+    result = job["result"]
+    previous = st.session_state.saved_search
+    meta = result["meta"]
+    if previous and any(meta.get(k) != previous.get(k) for k in
+                        ("username", "start", "end", "start_time", "end_time", "geometry")):
+        st.session_state.saved_trip_id = None
+        st.session_state.saved_search = None
+    st.session_state.trip = result["frame"]
+    st.session_state.query = meta
+    st.session_state.novelty = result["novelty"].copy()
+    st.session_state.own_first_ids = result["firsts"]
+    st.session_state.report_warnings = result["warnings"]
+    st.session_state.pdf_bytes = None
+    st.session_state.pdf_key = None
+    st.session_state.bulk_failed = False
+    st.session_state.slow_mode = False
+    st.session_state.loaded_report_job = token
+    st.rerun()
+
+
+token = st.session_state.get("report_job") or st.query_params.get("report")
+if token and st.session_state.get("loaded_report_job") != token:
+    follow_report_job(token)
 
 def card_html(current):
     cards = []
@@ -282,7 +317,8 @@ def card_html(current):
 
 def summary_html(all_species, meta, novelty):
     ids = all_species["species_id"]
-    has_area = bool(meta["places"] or meta["geometry"])
+    extended = meta.get('extended_checks', True)
+    has_area = extended and bool(meta["places"] or meta["geometry"])
     counts = summary_counts(novelty, ids, has_area)
     pending = any(int(sid) not in novelty for sid in ids)
     def display(value):
@@ -296,8 +332,8 @@ def summary_html(all_species, meta, novelty):
         (f"{meta.get('unidentified_total', 0):,}", "Nog niet op soort"),
         (f"{len(all_species):,}", "Soorten"),
         (display(counts["own"]), "Nieuw voor mij"),
-        (display(counts["area"]), "Nieuw in gebied" if has_area else "Geen openbaar reisgebied"),
-        (display(counts["global"]), "Nieuw op iNaturalist"),
+        (display(counts["area"]) if extended else "—", "Nieuw in gebied" if extended else "Gebiedscontrole uit"),
+        (display(counts["global"]) if extended else "—", "Nieuw op iNaturalist" if extended else "Wereldcontrole uit"),
     ]
     return '<div class="trip-summary">' + ''.join(
         f'<div class="trip-stat"><strong>{value}</strong><span>{label}</span></div>'
@@ -363,6 +399,8 @@ def show_progressive_grid(current, all_species, meta, summary_slot):
 frame = st.session_state.trip
 meta = st.session_state.query
 if frame is not None and meta:
+    for warning in st.session_state.get("report_warnings", []):
+        st.warning(warning)
     st.divider()
     st.subheader("Waar de waarnemingen waren")
     points = meta.get("heat_points") or []
@@ -371,9 +409,8 @@ if frame is not None and meta:
                   height=460, use_container_width=True, returned_objects=[], key="trip_heatmap")
         st.caption(f"{len(points):,} waarnemingen met openbare locatie. Kleuren tonen de relatieve dichtheid. "
                    "Cirkels: straal 25 km, minstens 26 waarnemingen. Overlappende cirkels kunnen dezelfde waarnemingen bevatten.")
-        st.caption("Nieuw betekent: de eerste gedateerde iNaturalist-waarneming van een soort ligt in deze cirkel, "
-                   "voor jouw account, het betreffende land of wereldwijd. ≥ … (?) betekent dat de controle onvolledig is. "
-                   "Bij meerdere landen telt een soort eenmaal als die voor minstens één land nieuw is.")
+        st.caption("Cirkels tonen waarnemingen, soorten en soorten nieuw voor jou. Nieuw betekent: jouw eerste gedateerde "
+                   "iNaturalist-waarneming van die soort ligt in deze cirkel. ≥ … (?) betekent dat de controle onvolledig is.")
     else:
         st.info("Deze selectie heeft geen openbare locaties; er kan geen heatmap of reisgebied worden bepaald.")
     if meta.get("missing_location_total"):
@@ -414,10 +451,16 @@ if frame is not None and meta:
         maximum = len(ordered)
         shown = st.slider("Aantal soorten tonen", 1, maximum, maximum) if maximum > 10 else maximum
         current = ordered.head(shown)
-        st.markdown('<div class="legend"><span><b class="yellow">★</b> Mijn eerste waarneming</span><span><b class="yellow rg">★</b> Eigen eerste met Research Grade tijdens reis</span><span><b class="orange">★</b> Eerste in automatisch reisgebied</span><span><b class="red">★</b> Eerste op iNaturalist</span></div>', unsafe_allow_html=True)
-        st.caption("Alle toepasselijke sterren staan naast elkaar. Eigen en gebiedseerste worden onafhankelijk gecontroleerd. Bij een te groot historisch kaartgebied kan de oranje ster onbekend blijven.")
+        if meta.get('extended_checks', True):
+            st.markdown('<div class="legend"><span><b class="yellow">★</b> Mijn eerste waarneming</span><span><b class="yellow rg">★</b> Eigen eerste met Research Grade tijdens reis</span><span><b class="orange">★</b> Eerste in automatisch reisgebied</span><span><b class="red">★</b> Eerste op iNaturalist</span></div>', unsafe_allow_html=True)
+            st.caption("Alle toepasselijke sterren staan naast elkaar. Bij een te groot historisch kaartgebied kan de oranje ster onbekend blijven.")
+        else:
+            st.caption("Geel: jouw eerste waarneming. Rode rand om geel: Research Grade tijdens de reis. Uitgebreide gebieds- en wereldcontroles staan uit.")
         show_progressive_grid(current, ordered, meta, summary_slot)
     safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", meta["username"])
+    completed_checkpoint = report_jobs().export_checkpoint(st.session_state.get('loaded_report_job') or '')
+    if completed_checkpoint:
+        st.download_button("Herstartbestand downloaden", completed_checkpoint, 'tripreport-herstart.json', 'application/json', key='completed_checkpoint')
     with download_controls.container():
         pdf_key = (meta["username"], meta["start"], meta["end"], meta.get("start_time"), meta.get("end_time"), meta["geometry"], sort_by)
         if st.button("📄 PDF van volledig overzicht maken"):

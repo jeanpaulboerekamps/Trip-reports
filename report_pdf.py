@@ -116,7 +116,8 @@ def make_trip_pdf(frame, meta, novelty):
     rows = list(frame.to_dict("records"))
     with ThreadPoolExecutor(max_workers=8) as pool:
         photos = list(pool.map(_photo, [str(row.get("Foto") or "") for row in rows]))
-    counts = summary_counts(novelty, frame["species_id"], bool(meta["places"] or meta["geometry"]))
+    extended = meta.get('extended_checks', True)
+    counts = summary_counts(novelty, frame["species_id"], extended and bool(meta["places"] or meta["geometry"]))
 
     def page_header(page_no, with_summary=False):
         c.setFillColor(INK)
@@ -136,7 +137,7 @@ def make_trip_pdf(frame, meta, novelty):
                 (len(rows), "Soorten"),
                 (counts["own"], "Nieuw voor mij"),
                 (counts["area"] if counts["area"] is not None else "-", "Nieuw in gebied"),
-                (counts["global"], "Nieuw op iNaturalist"),
+                (counts["global"] if extended else "-", "Nieuw op iNaturalist" if extended else "Wereldcontrole uit"),
             ]
             box_w = (page_w - 2 * margin - 10) / 3
             for i, (value, label) in enumerate(values):
@@ -151,7 +152,8 @@ def make_trip_pdf(frame, meta, novelty):
                 c.drawString(x + 9, y + 8, label)
             c.setFillColor(MUTED)
             c.setFont("Helvetica", 8)
-            c.drawString(margin, page_h - 235, "Ster: geel = eigen eerste · oranje = eerste in gebied · rood = eerste op iNaturalist")
+            c.drawString(margin, page_h - 235, "Ster: geel = eigen eerste · oranje = eerste in gebied · rood = eerste op iNaturalist" if extended
+                         else "Ster: geel = jouw eerste. Uitgebreide gebieds- en wereldcontroles staan uit.")
             c.drawString(margin, page_h - 247, "Rode rand om geel = Research Grade tijdens de reis. Foto's komen uit de eigen waarnemingen.")
         c.setStrokeColor(BORDER)
         c.line(margin, 27, page_w - margin, 27)
@@ -176,8 +178,8 @@ def make_trip_pdf(frame, meta, novelty):
     notes = [f"{len(points):,} waarnemingen met openbare locatie. Kleuren tonen relatieve dichtheid.",
              f"{meta.get('missing_location_total', 0):,} waarnemingen zonder openbare locatie tellen wel mee in het rapport.",
              "Cirkels: straal 25 km, minimaal 26 waarnemingen. Overlap kan dezelfde waarnemingen bevatten.",
-             "Nieuw: eerste gedateerde waarneming in de cirkel voor jouw account, het land of iNaturalist.",
-             "Bij meerdere landen telt een nieuwe soort eenmaal. >= ... (?) betekent: controle onvolledig.",
+             "Cirkels tonen waarnemingen, soorten en soorten nieuw voor jouw account.",
+             "Nieuw: jouw eerste gedateerde waarneming ligt in de cirkel. >= ... (?) betekent: controle onvolledig.",
              "Tijden zijn de lokale waarnemingstijden; de gekozen eindminuut telt volledig mee."]
     if meta.get('unknown_time_total'):
         notes.append(f"{meta['unknown_time_total']:,} waarnemingen zonder tijdstip op een gedeeltelijke dag niet meegenomen.")

@@ -143,11 +143,13 @@ def leaflet_heatmap(points, geometry=None, circles=None):
         lon = circle['lon']+360*round((centre[1]-circle['lon'])/360)
         location = [circle['lat'], lon]
         bounds.extend([[lat, lng+360*round((centre[1]-lng)/360)] for lat,lng in circle_ring(circle)])
-        lines = '<br>'.join(escape(line) for line in circle_lines(circle))
+        labels = circle_lines(circle)
+        lines = '<br>'.join(escape(line) for line in labels)
+        label_height = len(labels)*16+12
         folium.Circle(location, radius=25000, color='#5634a5', weight=2, fill=True, fill_opacity=.04,
                       tooltip=f"Concentratie {circle['number']} · 25 km",
                       popup=escape(circle.get('countries') or 'Land onbekend')+'<br>'+lines).add_to(result)
-        folium.Marker(location, icon=folium.DivIcon(icon_size=(172,96), icon_anchor=(86,48), html=
+        folium.Marker(location, icon=folium.DivIcon(icon_size=(172,label_height), icon_anchor=(86,label_height/2), html=
                       '<div style="background:rgba(255,255,255,.88);border:1px solid #5634a5;border-radius:12px;'
                       'padding:5px;text-align:center;font:12px/16px sans-serif;color:#251745;white-space:nowrap">'
                       +lines+'</div>')).add_to(result)
@@ -241,10 +243,11 @@ def heatmap_image(points, width=1000, height=600, tile_loader=None, circles=None
         x,y = project(circle['lat'], lon, zoom)
         x,y = x-left,y-top
         lines = circle_lines(circle)
+        box_height = len(lines)*18+10
         box_width = max(draw.textlength(line, font=font) for line in lines)+12
-        draw.rounded_rectangle((x-box_width/2,y-48,x+box_width/2,y+48), radius=10, fill='white', outline='#5634a5')
+        draw.rounded_rectangle((x-box_width/2,y-box_height/2,x+box_width/2,y+box_height/2), radius=10, fill='white', outline='#5634a5')
         for i,line in enumerate(lines):
-            draw.text((x-draw.textlength(line,font=font)/2,y-43+i*18),line,fill='#251745',font=font)
+            draw.text((x-draw.textlength(line,font=font)/2,y-box_height/2+5+i*18),line,fill='#251745',font=font)
     draw.rectangle((0,height-25,width,height), fill='white')
     draw.text((8,height-19), '(c) OpenStreetMap contributors | Blauw: lage dichtheid - rood: hoge dichtheid', fill='#304a39')
     if missing:

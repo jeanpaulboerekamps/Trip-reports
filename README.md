@@ -1,119 +1,55 @@
-# Tripreport Verkenner - versie 6
+# Tripreport Verkenner - versie 8
 
-Een Streamlit-app voor afgeronde reizen met openbare iNaturalist-waarnemingen.
+Een Streamlit-app voor openbare iNaturalist-waarnemingen tijdens een reis.
 
 ## Gebruik
 
-1. Vul je openbare iNaturalist-gebruikersnaam in.
-   De app controleert de exacte accountnaam voordat waarnemingen worden
-   opgehaald. Hoofdletters en omringende spaties worden genegeerd; typefouten
-   worden gemeld. De zoekacties gebruiken daarna het bevestigde gebruikersnummer.
-2. Kies de begin- en einddatum en de tijden. Datums zijn beschikbaar vanaf
-   1 januari 1965. Standaardtijden zijn 00:00 en 23:59. De eindminuut telt
-   volledig mee, inclusief seconden. Tijden zijn de lokale tijden per
-   waarneming, volgens de tijdzone die iNaturalist registreert.
-3. Klik op **Tripreport maken**. Alle eigen openbare waarnemingen in deze
-   periode worden opgehaald, zonder handmatig gebiedsfilter.
-4. Het rapport begint met een interactieve heatmap op OpenStreetMap. Daarna
-   volgen de samenvatting en soortenkaarten. Je kunt de kaarten sorteren en
-   het aantal zichtbare soorten kiezen.
-5. Klik op **PDF van volledig overzicht maken** en daarna **PDF downloaden**.
-   De eerste PDF-pagina bevat de heatmap; daarna volgen de samenvatting en
-   alle soorten in de gekozen sorteervolgorde. Er is geen CSV-export meer.
+1. Vul je exacte iNaturalist-gebruikersnaam in. Hoofdletters en spaties worden genegeerd; typefouten worden gemeld.
+2. Kies datums (vanaf 1965) en tijden. Standaard 00:00 tot 23:59; de eindminuut telt volledig mee. De tijd is lokaal per waarneming.
+3. Laat **Uitgebreide oranje en rode stercontrole** uit voor het snelle rapport.
+4. Klik **Tripreport maken**. De voortgang vermeldt de actieve stap.
+5. Het rapport begint met de heatmap en 25 km-cirkels, gevolgd door samenvatting en soortenkaarten met eigen foto's. De PDF gebruikt dezelfde cirkels en gekozen soortenvolgorde. Er is geen CSV-export.
 
-## Automatisch reisgebied
+Bovenaan de app staat **Versie 8**, zodat je kunt controleren of de nieuwe bestanden zijn gedeployed. Bestaande trips uit eerdere versies blijven bruikbaar.
 
-De groene omgrenzing wordt niet meer getekend. Het gebied blijft intern beschikbaar voor de bestaande oranje sterren.
+## Snelle cirkels en persoonlijke eerste soorten
 
-## Concentraties op de kaart
+Bij minstens 26 waarnemingen binnen een geografische straal van 25 km verschijnt een cirkel. De dichtste locatie wordt eerst gekozen, daarna de dichtste locatie waarvan het middelpunt minstens 25 km van de al gekozen middelpunten ligt. Cirkels kunnen overlappen; hun aantallen zijn niet optelbaar.
 
-Kaart en PDF tonen cirkels met een geografische straal van 25 km bij minstens 26 openbare waarnemingen. De dichtste locatie wordt eerst gekozen; andere middelpunten binnen 25 km daarvan krijgen geen extra cirkel. Vervolgens wordt de dichtste overgebleven locatie gekozen. Zo verschijnen niet tientallen identieke cirkels rond dezelfde concentratie. Cirkels kunnen overlappen; tel de aantallen dus niet bij elkaar op.
+De cirkels tonen slechts drie aantallen: waarnemingen, unieke soorten en soorten nieuw voor jou. Waarnemingen zonder soortidentificatie tellen wel mee bij het eerste aantal. Nieuw betekent dat jouw eerste gedateerde iNaturalist-waarneming van een soort in die cirkel ligt. De app controleert de geschiedenis voor de eerste reisdag in groepen van maximaal 80 soorten en hergebruikt de reeds opgehaalde volledige dagen, ook bij een keuze van gedeeltelijke dagen. Een eerdere waarneming op dezelfde dag buiten de cirkel of buiten de gekozen uren telt dus niet als nieuw in die cirkel. Historische volgorde volgt waarnemingsdatum, met ID als gelijke-datumvolgorde voor persoonlijke waarnemingen. Een eerste registratie is geen wetenschappelijke ontdekking.
 
-Elke cirkel toont waarnemingen (ook zonder soortidentificatie), unieke soorten, nieuwe soorten voor jouw account, voor het betreffende land en wereldwijd op iNaturalist. Een soort is nieuw wanneer de eerste gedateerde iNaturalist-waarneming in de betreffende scope een van jouw waarnemingen binnen die cirkel is. Dit is een registratie-eerste, geen wetenschappelijke ontdekking. Landen komen uit de standaard iNaturalist-plaatsen op de waarneming (`admin_level=0`), niet uit het automatische reisgebied. Bij grensoverschrijdende cirkels telt een soort eenmaal als die in minstens één van die landen nieuw is. Ontbrekende landen en mislukte historische controles worden als `>= aantal (?)` getoond; onbekend is niet nul. De historische volgorde volgt iNaturalist `observed_on`, met de door de API gekozen eerste waarneming bij gelijke datums.
+De cirkels doen geen land- of wereldwijde historische controles. Die aantallen zijn ook uit de PDF-cirkels verwijderd. Onvolledige persoonlijke controles tonen `>= aantal (?)`; onbekend is niet nul.
 
-Deze extra historische controles kunnen vooral bij veel nieuwe soorten langer duren. Exacte eerste-recordvragen worden in het app-proces gecachet. Bij opnieuw ophalen wordt de controle opnieuw opgebouwd.
+Oranje en rode sterren en de gebieds-/wereldtellingen in de samenvatting staan standaard uit. Uitgeschakelde tellingen tonen een streepje. Je kunt die uitgebreide controles bij de reisinstellingen aanzetten; dan kunnen vele historische API-verzoeken opnieuw minuten kosten. Dit voegt geen land-/wereldtellingen aan de cirkels toe. Geel geeft jouw eerste waarneming; een rode rand om geel betekent Research Grade tijdens de reis.
 
-De app bepaalt het reisgebied uit de openbare locaties in de gekozen periode.
-Het gebied is de omhullende grens (convexe omhulling) van alle locaties, met
-circa 1 km marge. Ook één locatie levert daarmee een bruikbaar gebied op.
-De groene grens is zichtbaar op de kaarten en wordt gebruikt voor de controle
-van eerste waarnemingen in het gebied. Bij verspreide locaties kan de grens
-ook tussenliggende plekken omvatten waar je niet bent geweest. Een reis over
-de internationale datumgrens krijgt een passend gebied aan beide kanten.
+## Onderbreken en hervatten
 
-Heatmapkleuren tonen relatieve dichtheid, geen exact aantal per kleur.
-Alle geselecteerde waarnemingen met een openbare locatie tellen mee,
-ook waarnemingen die nog niet op soort zijn geïdentificeerd. Waarnemingen
-zonder openbare locatie blijven in de samenvatting en soortenlijst staan.
-Zonder locaties kan geen heatmap of gebied worden bepaald en zijn oranje
-sterren niet beschikbaar. Afgeschermde locaties worden uitsluitend gebruikt
-zoals ze openbaar door iNaturalist worden aangeleverd.
+Het ophalen en controleren draait op de server, los van de browserverbinding. Bewaar de URL met `?report=...` om terug te keren naar dezelfde taak.
 
-Wanneer een waarneming geen tijdstip heeft, telt zij mee op een volledig
-gekozen dag. Op een gedeeltelijk gekozen begin- of einddag wordt zij niet
-meegenomen; de app en PDF vermelden het aantal van deze uitsluitingen.
+De app slaat een herstartpunt op na accountcontrole, volledig ophalen van de waarnemingen, opbouwen van de soortenlijst, iedere persoonlijke groepscontrole, cirkelberekening en ophalen van totalen. Optionele uitgebreide stercontroles worden per groep van 40 soorten opgeslagen. Een onafgeronde stap wordt opnieuw uitgevoerd, afgeronde stappen en groepen worden hergebruikt.
 
-De PDF haalt kaarttegels van OpenStreetMap op en bewaart tijdelijk maximaal
-96 tegels in het geheugen. Als tegels niet beschikbaar zijn, blijft de heatmap
-zichtbaar en krijgt de PDF een melding over de ontbrekende achtergrondkaart.
-De interactieve kaart en PDF gebruiken dezelfde locaties en gebiedsgrens;
-de dichtheidsweergave past zich aan het kaartformaat aan.
+- Als de taak nog draait: terugkeren naar dezelfde URL sluit erop aan.
+- Als alleen het serverproces is herstart maar de opslag nog bestaat: open dezelfde URL en klik **Berekening hervatten**. Dezelfde reisinstellingen opnieuw indienen hervat ook het opgeslagen punt.
+- Download tussentijds **Herstartbestand downloaden**. Dit JSON-bestand bevat de tot dan toe opgehaalde gegevens en controles. Download na meer voortgang een nieuw exemplaar om een later punt te bewaren.
+- Als Streamlit de hele tijdelijke serveropslag wist: open **Berekening hervatten met een herstartbestand**, kies je JSON-bestand en klik **Berekening uit bestand hervatten**. Alleen werk na dat bestand wordt opnieuw gedaan.
 
-## Sterren en aantallen
+Herstartpunten blijven op de server zeven dagen beschikbaar. Streamlit Cloud kan deze tijdelijke opslag eerder wissen bij herdeploy, herstart of slapen. Een gedownload herstartbestand biedt herstel zonder die serveropslag. Er is geen externe duurzame database. Herstartbestanden zijn bedoeld voor versie 8; niet-afgeronde versie 6/7-berekeningen hadden geen dergelijke opslag en kunnen niet achteraf worden teruggehaald. PDF-generatie start afzonderlijk op verzoek.
 
-- Geel: je allereerste waarneming van de soort is een waarneming uit deze reis.
-- Oranje: de eerste openbare waarneming van de soort in het automatische
-  reisgebied is een waarneming uit deze reis.
-- Rood: de eerste openbare waarneming van de soort wereldwijd is uit deze reis.
+## Gebied, locaties en kaart
 
-Alle toepasselijke sterren staan naast elkaar. Geel krijgt een rode rand
-wanneer minstens één reiswaarneming van de soort Research Grade heeft.
-De vergelijking gebruikt het exacte waarnemingsnummer. De eigen geschiedenis
-wordt wereldwijd gecontroleerd, ook als die buiten het reisgebied ligt.
-Een eerdere waarneming op dezelfde kalenderdag maar buiten de gekozen tijden
-kan daardoor verhinderen dat een nieuwe reiswaarneming een eerste is.
+Het gebied wordt intern bepaald uit de openbare locaties, met ongeveer 1 km marge. De groene omgrenzing wordt niet getekend. Bij optionele oranje sterren blijft dit gebied de geografische scope. Locaties ontbreken soms of zijn door iNaturalist verduisterd; de kaart gebruikt de openbare coördinaten. Gegevens zonder openbare locatie blijven in het rapport.
 
-Soortenkaarten bevatten de eerste foto van je eerste geselecteerde waarneming,
-het aantal tijdens deze reis en je totale openbare aantal. Foto's behouden hun
-beeldverhouding. De samenvatting telt de hele reis, ook wanneer minder kaarten
-zichtbaar zijn. Ontbrekende stercontroles worden als onzeker aangeduid.
-Bij een zeer groot historisch gebied kan de oranje controle onvolledig blijven.
-De app bewaart alleen de waarnemingsvelden die voor het rapport nodig zijn en
-begrenst iNaturalist-verzoeken tot ongeveer zestig per minuut.
+Waarnemingen zonder tijdstip op een gedeeltelijk gekozen grensdag worden uitgesloten en vermeld. Volledige dagen blijven wel meetellen. Dateline-overschrijdende reizen worden ondersteund.
 
-## Trips bewaren
+De interactieve kaart gebruikt OpenStreetMap. De PDF haalt een beperkte hoeveelheid kaarttegels op en toont een melding als de achtergrond niet beschikbaar is; de lokale heatmap blijft beschikbaar. De kaarttegelcache is begrensd.
 
-Geef het rapport een naam en klik na de stercontrole op **Trip bewaren**.
-In **Bewaarde trips** zoek je op naam, gebruiker, gebied of datum. De samenvatting
-is direct beschikbaar. **Zoekkenmerken laden** herstelt gebruiker, datums en
-beide tijden; maak daarna het rapport opnieuw om de locaties en het gebied
-opnieuw te bepalen. Oude bewaarde trips zonder tijden krijgen 00:00 en 23:59.
-Eventuele oude handmatige gebieden worden niet meer als zoekfilter gebruikt.
+## Bewaarde trips en installatie
 
-Trips worden lokaal in deze browser op dit apparaat bewaard, zonder account
-of database. Download een JSON-reservekopie om ze te bewaren of in een andere
-browser te importeren. Dit is een reservekopie van trips, geen CSV-soortenexport.
-Browsergegevens wissen of privémodus kan bewaarde trips verwijderen.
+Tripinstellingen en samenvattingen worden lokaal in je browser bewaard; ze zijn apart van de server-herstartpunten. Ze kunnen als JSON worden geëxporteerd en geïmporteerd. Bewaarde trips uit oudere versies gebruiken standaardtijden 00:00 en 23:59.
 
-## Installatie
+Zet alle bronbestanden, inclusief `report_jobs.py`, `concentrations.py`, `trip_map.py`, `report_pdf.py`, de component en requirements, in de Streamlit-repository. Startbestand: `app.py`.
 
-Plaats alle Python-bestanden (inclusief **trip_map.py**), requirements.txt en
-README.md bovenaan de repository. De map local_store_component is optioneel:
-app.py bevat dezelfde browsercomponent als reserve. Start op Streamlit
-Community Cloud met app.py, of lokaal:
+Installatie: `pip install -r requirements.txt`.
+Tests: installeer ook `tests/requirements.txt` en voer `python -m unittest discover -s tests -v` uit.
 
-```bash
-python -m pip install -r requirements.txt
-python -m streamlit run app.py
-```
-
-Er zijn geen wachtwoorden of API-sleutels nodig. Internet is nodig voor
-waarnemingen, foto's en achtergrondkaarten. Openbare taxonomie wordt lokaal
-in .cache/taxonomy.sqlite3 hergebruikt.
-
-## Controles
-
-```bash
-python -m pip install -r tests/requirements.txt
-python -m unittest discover -s tests -v
-```
+API-verzoeken behouden de bestaande globale wachttijd van circa één seconde tussen starts en retries bij tijdelijke fouten. Een mislukte persoonlijke groepscontrole wordt onzeker gemarkeerd en start niet honderden losse zoekacties.
