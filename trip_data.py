@@ -78,6 +78,9 @@ def _compact_observation(o):
     t = o.get("taxon") or {}
     photos = o.get("photos") or []
     return {"id": o["id"], "observed_on": o.get("observed_on"),
+            "time_observed_at": o.get("time_observed_at"),
+            "observed_time_zone": o.get("observed_time_zone"),
+            "time_zone": o.get("time_zone"),
             "geojson": o.get("geojson"), "quality_grade": o.get("quality_grade"),
             "taxon": {k: t.get(k) for k in ("id", "rank", "name", "preferred_common_name", "ancestor_ids")},
             "photos": [{k: photos[0].get(k) for k in ("medium_url", "url")}] if photos else []}

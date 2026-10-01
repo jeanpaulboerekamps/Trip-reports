@@ -1,5 +1,5 @@
 """Tripreport Verkenner — afgeronde reizen met openbare iNaturalist-gegevens."""
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime, time
 import html
 import json
 import re
@@ -7,16 +7,15 @@ import tempfile
 from pathlib import Path
 from uuid import uuid4
 
-import folium
 import pandas as pd
 import streamlit as st
-from folium.plugins import Draw
 from streamlit_folium import st_folium
 from streamlit.components.v1 import declare_component
 
 from report_pdf import make_trip_pdf
+from trip_map import select_time_window, observation_points, infer_trip_area, leaflet_heatmap
 from taxonomy import sort_species_overview
-from trip_data import batch_stars, exact_place_match, first_record, normalize_geometry, own_firsts_in_window, personal_species_counts, search_places, species_frame, star_for, summary_counts, trip_observations
+from trip_data import batch_stars, first_record, own_firsts_in_window, personal_species_counts, species_frame, star_for, summary_counts, trip_observations
 
 EARLIEST_TRIP_DATE = date(1965, 1, 1)
 
@@ -31,6 +30,7 @@ def make_record(name, search, summary, trip_id=None):
         raise ValueError("Geef de trip een naam van maximaal 120 tekens.")
     names = [*search.get("place_names", []),
              *([search.get("area_name") or "Getekend gebied"] if search.get("geometry") else [])]
+    search = {key: value for key, value in search.items() if key != "heat_points"}
     return {"id": trip_id or str(uuid4()), "name": name, "username": search["username"],
             "start_date": search["start"], "end_date": search["end"],
             "area_label": " of ".join(names) if names else "Wereldwijd",
@@ -92,7 +92,8 @@ for key, value in {"places": [], "geometry": None, "area_name": "", "trip": None
     if key not in st.session_state:
         st.session_state[key] = value
 for key, value in {"trip_username": "", "trip_start": date.today() - timedelta(days=7),
-                   "trip_end": date.today() - timedelta(days=1), "trip_name": "",
+                   "trip_end": date.today() - timedelta(days=1), "trip_start_time": time(0, 0),
+                   "trip_end_time": time(23, 59), "trip_name": "",
                    "saved_trip_id": None, "saved_search": None, "show_saved": False,
                    "saved_rows": [], "storage_action": {"op": "list", "nonce": "initial"},
                    "last_storage_nonce": None, "storage_notice": ""}.items():
@@ -121,7 +122,7 @@ if isinstance(storage_event, dict) and storage_event.get("nonce") != st.session_
     st.session_state.storage_action = {"op": "list", "nonce": "initial"}
 
 st.title("🧭 Tripreport Verkenner")
-st.markdown('<div class="intro"><b>Je afgeronde reis in soorten.</b> Kies je iNaturalist-gebruikersnaam, reisdatums en een gebied. De foto’s komen uit jouw openbare waarnemingen.</div>', unsafe_allow_html=True)
+st.markdown('<div class="intro"><b>Je afgeronde reis in soorten.</b> Kies je iNaturalist-gebruikersnaam en de begin- en einddatum met tijd. Het reisgebied volgt automatisch uit de locaties van je waarnemingen. De foto’s komen uit jouw openbare waarnemingen.</div>', unsafe_allow_html=True)
 if st.session_state.storage_notice:
     st.info(st.session_state.storage_notice)
     st.session_state.storage_notice = ""
@@ -147,6 +148,8 @@ if st.session_state.show_saved:
                     st.session_state.trip_username = saved["username"]
                     st.session_state.trip_start = date.fromisoformat(saved["start"])
                     st.session_state.trip_end = date.fromisoformat(saved["end"])
+                    st.session_state.trip_start_time = time.fromisoformat(saved.get("start_time", "00:00"))
+                    st.session_state.trip_end_time = time.fromisoformat(saved.get("end_time", "23:59"))
                     st.session_state.places = [dict(place) for place in saved.get("selected_places", [])]
                     st.session_state.geometry = json.loads(saved["geometry"]) if saved.get("geometry") else None
                     st.session_state.area_name = saved.get("area_name", "")
@@ -179,108 +182,29 @@ with st.container(border=True):
     with from_col:
         start = st.date_input("Van", min_value=EARLIEST_TRIP_DATE,
                               max_value=date.today(), key="trip_start")
+        start_clock = st.time_input("Begintijd", key="trip_start_time", step=60)
     with to_col:
         end = st.date_input("Tot en met", min_value=EARLIEST_TRIP_DATE,
                             max_value=date.today(), key="trip_end")
+        end_clock = st.time_input("Eindtijd", key="trip_end_time", step=60)
 
-    st.markdown("**Land of streek kiezen**")
-    with st.form("place_search", clear_on_submit=False):
-        pc, bc = st.columns([4, 1])
-        with pc:
-            query = st.text_input("Zoek een iNaturalist-plaats", placeholder="Bijvoorbeeld: Nederland, Gelderland of Noord-Holland", label_visibility="collapsed")
-        with bc:
-            search = st.form_submit_button("Zoeken", use_container_width=True)
-        combine_place = st.checkbox("Samenvoegen met huidig gebied", value=False)
-    if search:
-        try:
-            found = search_places(query)
-            exact = exact_place_match(query, found)
-            if exact:
-                if combine_place:
-                    if exact["id"] not in [p["id"] for p in st.session_state.places]:
-                        st.session_state.places.append(exact)
-                else:
-                    st.session_state.places = [exact]
-                    st.session_state.geometry = None
-                    st.session_state.area_name = ""
-                st.session_state.place_results = []
-                st.success(f"{exact['name']} is nu het actieve gebied." if not combine_place else
-                           f"{exact['name']} is aan het actieve gebied toegevoegd.")
-            else:
-                st.session_state.place_results = found
-                st.session_state.place_combine = combine_place
-                if not found:
-                    st.warning("Geen iNaturalist-plaats gevonden. Probeer een andere naam.")
-        except Exception as exc:
-            st.error(str(exc))
-    if st.session_state.place_results:
-        action = "Plaats toevoegen" if st.session_state.get("place_combine") else "Gebied vervangen"
-        st.warning(f"De zoektekst is nog geen gebiedsfilter. Kies hieronder een resultaat en klik op ‘{action}’.")
-        choices = {f"{p['name']} · {p['id']}": p for p in st.session_state.place_results}
-        pick = st.selectbox("Kies een plaats", ["— Selecteer —", *choices], key="place_pick")
-        if st.button(action, type="primary", disabled=pick not in choices):
-            p = choices[pick]
-            if st.session_state.get("place_combine"):
-                if p["id"] not in [x["id"] for x in st.session_state.places]:
-                    st.session_state.places.append(p)
-            else:
-                st.session_state.places = [p]
-                st.session_state.geometry = None
-                st.session_state.area_name = ""
-            st.session_state.place_results = []
-            st.rerun()
-    if st.session_state.places:
-        st.success("Actief gebied: " + " · ".join(p["name"] for p in st.session_state.places))
-        remove = st.selectbox("Plaats verwijderen", ["— Geen —", *[p["name"] for p in st.session_state.places]])
-        if remove != "— Geen —" and st.button("Verwijder plaats"):
-            st.session_state.places = [p for p in st.session_state.places if p["name"] != remove]
-            st.rerun()
-    st.caption("Een nieuwe plaats vervangt standaard het vorige gebied. Kies ‘Samenvoegen’ voor meerdere plaatsen.")
-
-    if st.button("🗺️ Gebied tekenen" if not st.session_state.show_map else "Kaart sluiten"):
-        st.session_state.show_map = not st.session_state.show_map
-    if st.session_state.show_map:
-        name = st.text_input("Naam voor getekend gebied", value=st.session_state.area_name or "Mijn reisgebied")
-        combine_drawing = st.checkbox("Tekening samenvoegen met geselecteerde plaatsen", value=False)
-        m = folium.Map(location=[20, 5], zoom_start=2, tiles="OpenStreetMap", control_scale=True)
-        Draw(export=False, draw_options={"polyline":False,"circle":False,"circlemarker":False,"marker":False,
-                                         "polygon":{"allowIntersection":False},"rectangle":True},
-             edit_options={"edit":True,"remove":True}).add_to(m)
-        state = st_folium(m, height=430, use_container_width=True, key="trip_map", returned_objects=["all_drawings"])
-        drawings = state.get("all_drawings") or []
-        if st.button("Getekend gebied gebruiken", disabled=not drawings):
-            geometry = normalize_geometry(drawings[-1].get("geometry"))
-            if geometry:
-                if not combine_drawing:
-                    st.session_state.places = []
-                st.session_state.geometry = geometry
-                st.session_state.area_name = name.strip() or "Mijn reisgebied"
-                st.session_state.show_map = False
-                st.rerun()
-            st.error("Dit gebied heeft geen geldige vorm. Teken een nieuwe veelhoek of rechthoek.")
-    if st.session_state.geometry:
-        c1, c2 = st.columns([3, 1])
-        c1.success(f"Getekend gebied actief: {st.session_state.area_name}")
-        if c2.button("Wis tekening"):
-            st.session_state.geometry = None
-            st.session_state.area_name = ""
-            st.rerun()
-    st.caption("Zonder gebied zoeken we wereldwijd. Bij een tekening tellen alleen waarnemingen met openbare coördinaten binnen de exacte grens.")
-    if not st.session_state.places and not st.session_state.geometry:
-        st.info("Er is nog geen gebied gekozen. Voeg een zoekresultaat toe met ‘Plaats toevoegen’ of teken een gebied om oranje sterren te berekenen.")
+    st.caption("Tijden volgen de lokale tijd van iedere iNaturalist-waarneming. De eindminuut telt volledig mee. "
+               "Het gebied wordt de omhullende grens van de openbare locaties met circa 1 km marge.")
     go = st.button("🔎 Tripreport maken", type="primary", use_container_width=True)
 
 if go:
     if not username:
         st.error("Vul een iNaturalist-gebruikersnaam in.")
-    elif start > end:
-        st.error("De einddatum moet op of na de begindatum liggen.")
+    elif datetime.combine(start, start_clock) > datetime.combine(end, end_clock):
+        st.error("De einddatum en -tijd moeten op of na het begin liggen.")
     else:
-        places = tuple(p["id"] for p in st.session_state.places)
-        geometry = st.session_state.geometry
+        places = ()
         with st.status("Reisgegevens ophalen…", expanded=True) as status:
             try:
-                obs = trip_observations(username, start, end, places, geometry)
+                candidates = trip_observations(username, start, end)
+                obs, unknown_times = select_time_window(candidates, start, end, start_clock, end_clock)
+                points = observation_points(obs)
+                geometry = infer_trip_area(points)
                 st.write(f"{len(obs):,} openbare waarnemingen gevonden; soorten en taxonomie opbouwen…")
                 frame = species_frame(obs)
                 if not frame.empty:
@@ -294,14 +218,18 @@ if go:
                 st.session_state.trip = frame
                 st.session_state.query = {"username": username, "start": start.isoformat(), "end": end.isoformat(),
                                           "places": places, "geometry": json.dumps(geometry, sort_keys=True) if geometry else "",
-                                          "selected_places": [dict(p) for p in st.session_state.places],
-                                          "place_names": tuple(p["name"] for p in st.session_state.places),
-                                          "area_name": st.session_state.area_name if geometry else "",
+                                          "selected_places": [], "place_names": (),
+                                          "area_name": "Automatisch reisgebied" if geometry else "",
+                                          "start_time": start_clock.strftime("%H:%M"),
+                                          "end_time": end_clock.strftime("%H:%M"),
+                                          "heat_points": points,
+                                          "missing_location_total": len(obs) - len(points),
+                                          "unknown_time_total": unknown_times,
                                           "observation_total": len(obs),
                                           "unidentified_total": len(obs) - int(frame["Waarnemingen in gebied"].sum())}
                 previous = st.session_state.saved_search
                 if previous and (any(st.session_state.query[k] != previous.get(k) for k in
-                                     ("username", "start", "end", "geometry")) or
+                                     ("username", "start", "end", "start_time", "end_time", "geometry")) or
                                  tuple(st.session_state.query["places"]) != tuple(previous.get("places", []))):
                     st.session_state.saved_trip_id = None
                     st.session_state.saved_search = None
@@ -318,7 +246,7 @@ if go:
 
 def card_html(current):
     cards = []
-    colors = {"🟡": ("yellow", "Mijn eerste waarneming"), "🟠": ("orange", "Eerste in gekozen gebied"), "🔴": ("red", "Eerste op iNaturalist")}
+    colors = {"🟡": ("yellow", "Mijn eerste waarneming"), "🟠": ("orange", "Eerste in automatisch reisgebied"), "🔴": ("red", "Eerste op iNaturalist")}
     for _, row in current.iterrows():
         sid = int(row["species_id"])
         name = html.escape(str(row["Engelse naam"] or row["Wetenschappelijke naam"]))
@@ -359,7 +287,7 @@ def summary_html(all_species, meta, novelty):
         (f"{meta.get('unidentified_total', 0):,}", "Nog niet op soort"),
         (f"{len(all_species):,}", "Soorten"),
         (display(counts["own"]), "Nieuw voor mij"),
-        (display(counts["area"]), "Nieuw in gebied" if has_area else "Geen gebied gekozen"),
+        (display(counts["area"]), "Nieuw in gebied" if has_area else "Geen openbaar reisgebied"),
         (display(counts["global"]), "Nieuw op iNaturalist"),
     ]
     return '<div class="trip-summary">' + ''.join(
@@ -427,8 +355,21 @@ frame = st.session_state.trip
 meta = st.session_state.query
 if frame is not None and meta:
     st.divider()
+    st.subheader("Waar de waarnemingen waren")
+    points = meta.get("heat_points") or []
+    if points:
+        st_folium(leaflet_heatmap(points, json.loads(meta["geometry"]) if meta.get("geometry") else None),
+                  height=460, use_container_width=True, returned_objects=[], key="trip_heatmap")
+        st.caption(f"{len(points):,} waarnemingen met openbare locatie. Kleuren tonen de relatieve dichtheid; "
+                   "de groene grens is het automatisch bepaalde reisgebied.")
+    else:
+        st.info("Deze selectie heeft geen openbare locaties; er kan geen heatmap of reisgebied worden bepaald.")
+    if meta.get("missing_location_total"):
+        st.caption(f"{meta['missing_location_total']:,} waarnemingen zonder openbare locatie tellen wel mee in het rapport.")
+    if meta.get("unknown_time_total"):
+        st.warning(f"{meta['unknown_time_total']:,} waarnemingen zonder bekend tijdstip zijn op een gedeeltelijk gekozen dag niet meegenomen.")
     st.subheader(f"Soorten van {meta['username']}")
-    st.caption(f"{meta['start']} t/m {meta['end']} · {len(frame):,} soorten · {meta.get('observation_total', int(frame['Waarnemingen in gebied'].sum())):,} waarnemingen")
+    st.caption(f"{meta['start']} {meta.get('start_time', '00:00')} t/m {meta['end']} {meta.get('end_time', '23:59')} · {len(frame):,} soorten · {meta.get('observation_total', int(frame['Waarnemingen in gebied'].sum())):,} waarnemingen")
     active_names = [*meta.get("place_names", ()), *([meta.get("area_name") or "Getekend gebied"] if meta["geometry"] else [])]
     st.caption("Gebied: " + (" of ".join(active_names) if active_names else "wereldwijd (geen gebiedsfilter)"))
     summary_slot = st.empty()
@@ -447,39 +388,33 @@ if frame is not None and meta:
                     st.rerun()
             except Exception as exc:
                 st.error(f"Bewaren is mislukt: {exc}")
+    ordered = frame
+    sort_by = "Aantal waarnemingen"
+    download_controls = st.empty()
     if frame.empty:
         summary_slot.markdown(summary_html(frame, meta, st.session_state.novelty), unsafe_allow_html=True)
         st.info("Geen op soort geïdentificeerde waarnemingen gevonden binnen deze selectie.")
     else:
         if not meta["places"] and not meta["geometry"]:
-            st.info("Oranje sterren zijn pas mogelijk na het toevoegen van een land of streek, of het tekenen van een gebied. Maak daarna het tripreport opnieuw.")
+            st.info("Zonder openbare locaties kan geen automatisch gebied worden bepaald; oranje sterren zijn dan niet beschikbaar.")
         sort_by = st.selectbox("Volgorde foto's", ["Taxonomie (rijk → soort)", "Aantal waarnemingen"], index=0)
         ordered = sort_species_overview(frame, sort_by)
         maximum = len(ordered)
         shown = st.slider("Aantal soorten tonen", 1, maximum, maximum) if maximum > 10 else maximum
         current = ordered.head(shown)
-        st.markdown('<div class="legend"><span><b class="yellow">★</b> Mijn eerste waarneming</span><span><b class="yellow rg">★</b> Eigen eerste met Research Grade tijdens reis</span><span><b class="orange">★</b> Eerste in gekozen gebied</span><span><b class="red">★</b> Eerste op iNaturalist</span></div>', unsafe_allow_html=True)
+        st.markdown('<div class="legend"><span><b class="yellow">★</b> Mijn eerste waarneming</span><span><b class="yellow rg">★</b> Eigen eerste met Research Grade tijdens reis</span><span><b class="orange">★</b> Eerste in automatisch reisgebied</span><span><b class="red">★</b> Eerste op iNaturalist</span></div>', unsafe_allow_html=True)
         st.caption("Alle toepasselijke sterren staan naast elkaar. Eigen en gebiedseerste worden onafhankelijk gecontroleerd. Bij een te groot historisch kaartgebied kan de oranje ster onbekend blijven.")
-        download_controls = st.empty()
         show_progressive_grid(current, ordered, meta, summary_slot)
-        export = ordered.drop(columns=["obs_ids", "Foto"], errors="ignore").copy()
-        export["Ster"] = export["species_id"].map(lambda sid: (st.session_state.novelty.get(int(sid)) or {}).get("star", ""))
-        for column, flag in [("Nieuw voor mij", "own"), ("Nieuw in gebied", "area"), ("Nieuw op iNaturalist", "global")]:
-            export[column] = export["species_id"].map(lambda sid: (st.session_state.novelty.get(int(sid)) or {}).get(flag))
-        safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", meta["username"])
-        with download_controls.container():
-            csv_col, pdf_col = st.columns(2)
-            with csv_col:
-                st.download_button("⬇️ Soortenlijst als CSV", export.to_csv(index=False).encode("utf-8-sig"), f"tripreport_{safe}_{meta['start']}_{meta['end']}.csv", "text/csv")
-            with pdf_col:
-                pdf_key = (meta["username"], meta["start"], meta["end"], meta["places"], meta["geometry"], sort_by)
-                if st.button("📄 PDF van volledig overzicht maken"):
-                    with st.spinner("PDF met je eigen foto's maken…"):
-                        try:
-                            st.session_state.pdf_bytes = make_trip_pdf(ordered, meta, st.session_state.novelty)
-                            st.session_state.pdf_key = pdf_key
-                        except Exception as exc:
-                            st.error(f"De PDF kon niet worden gemaakt: {exc}")
-                if st.session_state.get("pdf_bytes") and st.session_state.get("pdf_key") == pdf_key:
-                    st.download_button("⬇️ PDF downloaden", st.session_state.pdf_bytes,
-                                       f"tripreport_{safe}_{meta['start']}_{meta['end']}.pdf", "application/pdf")
+    safe = re.sub(r"[^a-zA-Z0-9_-]+", "_", meta["username"])
+    with download_controls.container():
+        pdf_key = (meta["username"], meta["start"], meta["end"], meta.get("start_time"), meta.get("end_time"), meta["geometry"], sort_by)
+        if st.button("📄 PDF van volledig overzicht maken"):
+            with st.spinner("PDF met heatmap en je eigen foto's maken…"):
+                try:
+                    st.session_state.pdf_bytes = make_trip_pdf(ordered, meta, st.session_state.novelty)
+                    st.session_state.pdf_key = pdf_key
+                except Exception as exc:
+                    st.error(f"De PDF kon niet worden gemaakt: {exc}")
+        if st.session_state.get("pdf_bytes") and st.session_state.get("pdf_key") == pdf_key:
+            st.download_button("⬇️ PDF downloaden", st.session_state.pdf_bytes,
+                               f"tripreport_{safe}_{meta['start']}_{meta['end']}.pdf", "application/pdf")

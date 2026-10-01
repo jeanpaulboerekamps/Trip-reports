@@ -11,6 +11,7 @@ from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 
 from trip_data import summary_counts
+from trip_map import heatmap_image
 
 INK = colors.HexColor("#173d2e")
 MUTED = colors.HexColor("#607468")
@@ -117,14 +118,14 @@ def make_trip_pdf(frame, meta, novelty):
         photos = list(pool.map(_photo, [str(row.get("Foto") or "") for row in rows]))
     counts = summary_counts(novelty, frame["species_id"], bool(meta["places"] or meta["geometry"]))
 
-    def page_header(page_no):
+    def page_header(page_no, with_summary=False):
         c.setFillColor(INK)
-        c.setFont("Helvetica-Bold", 20 if page_no == 1 else 13)
-        c.drawString(margin, page_h - 49, "Tripreport" if page_no == 1 else f"Tripreport · {meta['username']}")
-        if page_no == 1:
+        c.setFont("Helvetica-Bold", 20 if with_summary else 13)
+        c.drawString(margin, page_h - 49, "Tripreport" if with_summary else f"Tripreport · {meta['username']}")
+        if with_summary:
             c.setFont("Helvetica", 10)
             c.setFillColor(MUTED)
-            c.drawString(margin, page_h - 67, f"{meta['username']}  ·  {meta['start']} t/m {meta['end']}")
+            c.drawString(margin, page_h - 67, f"{meta['username']} · {meta['start']} {meta.get('start_time', '00:00')} t/m {meta['end']} {meta.get('end_time', '23:59')}")
             area = [*meta.get("place_names", ()), *([meta.get("area_name") or "Getekend gebied"] if meta.get("geometry") else [])]
             c.setFont("Helvetica", 8)
             c.drawString(margin, page_h - 80, _fit("Gebied: " + (" of ".join(area) if area else "wereldwijd"),
@@ -158,8 +159,35 @@ def make_trip_pdf(frame, meta, novelty):
         c.setFillColor(MUTED)
         c.drawRightString(page_w - margin, 15, f"Pagina {page_no}")
 
-    page_no = 1
-    page_header(page_no)
+    # The map is the first output page, ahead of summary and species photos.
+    c.setFillColor(INK)
+    c.setFont("Helvetica-Bold", 20)
+    c.drawString(margin, page_h - 49, "Waar de waarnemingen waren")
+    c.setFont("Helvetica", 10)
+    c.setFillColor(MUTED)
+    c.drawString(margin, page_h - 69, _fit(f"{meta['username']} · {meta['start']} {meta.get('start_time', '00:00')} t/m {meta['end']} {meta.get('end_time', '23:59')}", page_w-2*margin, size=10))
+    points = meta.get('heat_points') or []
+    map_bytes, missing_tiles = heatmap_image(points)
+    if map_bytes:
+        c.drawImage(ImageReader(BytesIO(map_bytes)), margin, page_h-410,
+                    width=page_w-2*margin, height=(page_w-2*margin)*.6)
+    else:
+        c.drawString(margin, page_h-120, "Geen openbare locaties beschikbaar voor deze selectie.")
+    notes = [f"{len(points):,} waarnemingen met openbare locatie. Kleuren tonen relatieve dichtheid.",
+             f"{meta.get('missing_location_total', 0):,} waarnemingen zonder openbare locatie tellen wel mee in het rapport.",
+             "Reisgebied: omhullende grens van de openbare locaties met circa 1 km marge.",
+             "Tijden zijn de lokale waarnemingstijden; de gekozen eindminuut telt volledig mee."]
+    if meta.get('unknown_time_total'):
+        notes.append(f"{meta['unknown_time_total']:,} waarnemingen zonder tijdstip op een gedeeltelijke dag niet meegenomen.")
+    if missing_tiles:
+        notes.append("De achtergrondkaart kon niet volledig worden opgehaald; de heatmap is wel compleet.")
+    c.setFont('Helvetica', 8)
+    for i, note in enumerate(notes):
+        c.drawString(margin, page_h-435-i*15, _fit(note, page_w-2*margin, size=8))
+    c.drawRightString(page_w-margin, 15, 'Pagina 1')
+    c.showPage()
+    page_no = 2
+    page_header(page_no, with_summary=True)
     start_y = page_h - 270
     for i, row in enumerate(rows):
         if i and i % 3 == 0:
