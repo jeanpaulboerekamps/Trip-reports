@@ -133,8 +133,10 @@ def make_trip_pdf(frame, meta, novelty):
     margin, gutter, card_h = 35, 8, 161
     card_w = (page_w - 2 * margin - 3 * gutter) / 4
     rows = list(frame.to_dict("records"))
+    unclassified = meta.get('unidentified_records') or []
     with ThreadPoolExecutor(max_workers=8) as pool:
         photos = list(pool.map(_photo, [str(row.get("Foto") or "") for row in rows]))
+        extra_photos = list(pool.map(_photo, [str(row.get('photo') or '') for row in unclassified]))
     extended = True
     counts = summary_counts(novelty, frame["species_id"], extended and bool(meta["places"] or meta["geometry"]))
 
@@ -212,5 +214,39 @@ def make_trip_pdf(frame, meta, novelty):
             col = i % 4
             x = margin + col * (card_w + gutter)
             _draw_card(c, row, novelty, photos[i], x, start_y - card_h, card_w, card_h)
+    if unclassified:
+        page_no = (page_no if rows else 1) + 1
+        c.showPage()
+        page_header(page_no)
+        c.setFont('Helvetica-Bold',11)
+        c.drawString(margin,page_h-68,'Nog niet op soort geïdentificeerd')
+        small_gutter, small_h = 5, 82
+        small_w = (page_w-2*margin-7*small_gutter)/8
+        top = page_h-80
+        for i, observation in enumerate(unclassified):
+            if i and i%8==0:
+                top -= small_h+small_gutter
+            if top-small_h<40:
+                c.showPage()
+                page_no += 1
+                page_header(page_no)
+                c.setFont('Helvetica-Bold',11)
+                c.drawString(margin,page_h-68,'Nog niet op soort geïdentificeerd')
+                top=page_h-80
+            x=margin+(i%8)*(small_w+small_gutter)
+            y=top-small_h
+            c.setFillColor(colors.white); c.setStrokeColor(BORDER)
+            c.roundRect(x,y,small_w,small_h,4,fill=1,stroke=1)
+            if extra_photos[i]:
+                try:
+                    c.drawImage(ImageReader(BytesIO(extra_photos[i])),x+3,y+24,small_w-6,55,preserveAspectRatio=True,anchor='c',mask='auto')
+                except (ValueError,OSError):
+                    pass
+            c.setFillColor(INK); c.setFont('Helvetica',6)
+            c.drawString(x+3,y+14,_fit(observation.get('name') or 'Onbekend',small_w-6,size=6))
+            c.setFillColor(MUTED); c.setFont('Helvetica',5.5)
+            c.drawString(x+3,y+5,_fit(observation.get('date') or '',small_w-6,size=5.5))
+            if str(observation.get('url') or '').startswith('https://'):
+                c.linkURL(observation['url'],(x,y,x+small_w,y+small_h),relative=0)
     c.save()
     return out.getvalue()

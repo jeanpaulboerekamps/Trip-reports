@@ -20,6 +20,9 @@ def build_report(search, progress, checkpoint=None, save=None):
     save = save or (lambda state: None)
     username, start, end, start_time, end_time = search[:5]
     map_extended = bool(search[5]) if len(search) > 5 else False
+    trip_name = str(search[6]).strip() if len(search) > 6 else ''
+    if len(search)>6 and (not trip_name or len(trip_name)>120):
+        raise ValueError('Vul een naam voor deze trip in (maximaal 120 tekens).')
     extended = True  # Totals and species stars are always fully checked.
     start, end = date.fromisoformat(start), date.fromisoformat(end)
     start_time, end_time = clock.fromisoformat(start_time), clock.fromisoformat(end_time)
@@ -74,6 +77,7 @@ def build_report(search, progress, checkpoint=None, save=None):
     frame['Mijn waarnemingen wereldwijd'] = (frame['species_id'].map(counts).fillna(0).astype(int)
                                              if counts is not None else pd.NA)
     meta = {'username': account['login'], 'user_id': user, 'start': start.isoformat(), 'end': end.isoformat(),
+            'trip_name': trip_name,
             'start_time': start_time.strftime('%H:%M'), 'end_time': end_time.strftime('%H:%M'),
             'places': (), 'geometry': json.dumps(geometry, sort_keys=True) if geometry else '',
             'selected_places': [], 'place_names': (), 'area_name': 'Automatisch reisgebied' if geometry else '',
@@ -82,6 +86,18 @@ def build_report(search, progress, checkpoint=None, save=None):
             'extended_checks': extended,
             'map_extended_checks': map_extended,
             'unidentified_total': len(observations)-int(frame['Waarnemingen in gebied'].sum())}
+    identified = {oid for ids in frame['obs_ids'] for oid in ids}
+    meta['unidentified_records'] = []
+    for observation in observations:
+        if observation['id'] in identified:
+            continue
+        taxon = observation.get('taxon') or {}
+        photos = observation.get('photos') or []
+        photo = (photos[0].get('medium_url') or photos[0].get('url') or '') if photos else ''
+        meta['unidentified_records'].append({'id':observation['id'],
+            'name':taxon.get('preferred_common_name') or taxon.get('name') or 'Onbekend',
+            'date':observation.get('observed_on') or '', 'photo':photo,
+            'url':f"https://www.inaturalist.org/observations/{observation['id']}"})
     novelty = personal.copy()
     if extended:
         checked = state.setdefault('extended_novelty', {})
@@ -170,14 +186,16 @@ class ReportJobs:
                 if job['key'] == key and job['state'] == 'running':
                     return token
             saved = self._load(self.directory/(key+'.checkpoint'))
-            if saved is None and len(search) == 6:
+            if saved is None and len(search) >= 6:
                 # A changed map checkbox reuses the same trip history and star checks.
-                other = (*search[:5], not search[5])
+                other = (*search[:5], not search[5], *search[6:])
                 previous = self._load(self.directory/(self.key(other)+'.checkpoint'))
                 if previous:
                     saved = {**previous, 'token':uuid4().hex, 'search':search}
             token = saved['token'] if saved else uuid4().hex
             result = self._load(self.directory/(token+'.pickle'))
+            if result is not None and self.builder is build_report and 'unidentified_records' not in result.get('meta',{}):
+                result = None  # Rebuild metadata from checkpoint; historical checks remain saved.
             if result is not None:
                 self.jobs[token] = {'state':'done','message':'Tripreport gereed','key':key,'result':result,
                                     'completed':(self.directory/(token+'.pickle')).stat().st_mtime}
@@ -229,6 +247,8 @@ class ReportJobs:
                 return job.copy()
         result = self._load(self.directory/(token+'.pickle'))
         if result is not None:
+            if self.builder is build_report and 'unidentified_records' not in result.get('meta',{}):
+                return {'state':'paused','message':'Rapport bijwerken met de extra foto’s vanaf het opgeslagen punt'}
             return {'state':'done','message':'Tripreport gereed','result':result}
         saved = self._saved_token(token)
         if saved:
@@ -253,7 +273,7 @@ class ReportJobs:
             meta = job['result'].get('meta', {})
             if meta:
                 return (meta['username'],meta['start'],meta['end'],meta['start_time'],meta['end_time'],
-                        meta.get('map_extended_checks',False))
+                        meta.get('map_extended_checks',False),meta.get('trip_name',''))
         return None
 
     def export_checkpoint(self, token):
@@ -269,8 +289,10 @@ class ReportJobs:
             raise ValueError('Dit is geen geldig herstartbestand (versie 8 of 9).')
         saved = decode_state(document['payload'])
         search = saved['search']
-        if len(search) != 6 or not isinstance(search[0],str) or not isinstance(search[5],bool):
+        if len(search) not in (6,7) or not isinstance(search[0],str) or not isinstance(search[5],bool):
             raise ValueError('Ongeldige reisinstellingen.')
+        if len(search)==7 and (not isinstance(search[6],str) or not search[6].strip() or len(search[6])>120):
+            raise ValueError('Vul een geldige tripnaam in.')
         date.fromisoformat(search[1]); date.fromisoformat(search[2])
         clock.fromisoformat(search[3]); clock.fromisoformat(search[4])
         if not isinstance(saved['state'],dict):

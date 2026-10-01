@@ -1,16 +1,22 @@
-# Tripreport Verkenner - versie 11
+# Tripreport Verkenner - versie 12
 
 Een Streamlit-app voor openbare iNaturalist-waarnemingen tijdens een reis.
 
 ## Gebruik
 
-1. Vul je exacte iNaturalist-gebruikersnaam in. Hoofdletters en spaties worden genegeerd; typefouten worden gemeld.
+1. Geef eerst een naam aan de trip (verplicht, maximaal 120 tekens). Deze naam wordt bij de berekening en het herstartpunt bewaard. Vul daarna je exacte iNaturalist-gebruikersnaam in. Hoofdletters en spaties worden genegeerd; typefouten worden gemeld.
 2. Kies datums (vanaf 1965) en tijden. Standaard 00:00 tot 23:59; de eindminuut telt volledig mee. De tijd is lokaal per waarneming.
 3. Kies of **nieuw in gebied en nieuw op iNaturalist** ook in de kaartcirkels moeten staan. Deze keuze geldt alleen voor de kaart. Sterren en totalen worden altijd volledig gecontroleerd.
 4. Klik **Tripreport maken**. De voortgang vermeldt de actieve stap.
 5. De app begint met de heatmap en 25 km-cirkels, gevolgd door samenvatting en soortenkaarten met eigen foto's. De PDF begint met de bewaarde tripnaam, direct gevolgd door de samenvatting en dan de kaart op de eerste pagina. De toelichting onder de kaart is verwijderd. Daarna volgen fotopagina's met vier kolommen en vier rijen (16 soorten per volle pagina), in de gekozen soortenvolgorde. Er is geen CSV-export.
 
-Bovenaan de app staat **Versie 11**, zodat je kunt controleren of de nieuwe bestanden zijn gedeployed. Bestaande trips uit eerdere versies blijven bruikbaar. De PDF gebruikt de ingevulde tripnaam of vindt de passende bewaarde naam terug; zonder naam gebruikt hij Tripreport.
+Bovenaan de app staat **Versie 12**, zodat je kunt controleren of de nieuwe bestanden zijn gedeployed. Bestaande trips uit eerdere versies blijven bruikbaar. De PDF gebruikt de ingevulde tripnaam of vindt de passende bewaarde naam terug. Oude herstartbestanden zonder naam blijven laadbaar.
+
+## Waarnemingen zonder soortidentificatie
+
+Alle geselecteerde waarnemingen die niet aan een soort in het soortenoverzicht zijn gekoppeld, staan achteraan als afzonderlijke kleinere fotokaarten, in rijen van acht. Dit geldt voor de app en de PDF. Een genus-, familie- of andere taxonnaam staat erbij als die beschikbaar is; anders Onbekend. Zonder openbare foto wordt een lege kaart getoond. Een identificatie op ondersoort wordt via de soortvoorouder wel bij de normale soortenkaarten ingedeeld. Het ophalen van extra PDF-foto’s kan de export langer laten duren.
+
+Kaartlabels staan links van de middelpunten, met pijlen ernaartoe, zodat de concentraties zichtbaar blijven. De kaart houdt ruimte voor de labels aan de linkerkant.
 
 ## Snelle cirkels en persoonlijke eerste soorten
 

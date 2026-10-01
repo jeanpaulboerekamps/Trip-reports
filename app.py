@@ -31,7 +31,7 @@ def make_record(name, search, summary, trip_id=None):
         raise ValueError("Geef de trip een naam van maximaal 120 tekens.")
     names = [*search.get("place_names", []),
              *([search.get("area_name") or "Getekend gebied"] if search.get("geometry") else [])]
-    search = {key: value for key, value in search.items() if key not in ("heat_points", "concentrations")}
+    search = {key: value for key, value in search.items() if key not in ("heat_points", "concentrations", "unidentified_records")}
     return {"id": trip_id or str(uuid4()), "name": name, "username": search["username"],
             "start_date": search["start"], "end_date": search["end"],
             "area_label": " of ".join(names) if names else "Wereldwijd",
@@ -131,6 +131,8 @@ if restore_token and st.session_state.get('restored_form_token') != restore_toke
         st.session_state.trip_start_time = time.fromisoformat(settings[3])
         st.session_state.trip_end_time = time.fromisoformat(settings[4])
         st.session_state.map_extra_choice = settings[5]
+        if len(settings)>6:
+            st.session_state.trip_name = settings[6]
         st.session_state.restored_form_token = restore_token
 if isinstance(storage_event, dict) and storage_event.get("nonce") != st.session_state.last_storage_nonce:
     st.session_state.last_storage_nonce = storage_event.get("nonce")
@@ -145,7 +147,7 @@ if isinstance(storage_event, dict) and storage_event.get("nonce") != st.session_
     st.session_state.storage_action = {"op": "list", "nonce": "initial"}
 
 st.title("🧭 Tripreport Verkenner")
-st.caption("Versie 11 · PDF met tripnaam, samenvatting, kaart en vier foto's per rij")
+st.caption("Versie 12 · verplichte tripnaam en extra foto's achteraan")
 st.markdown('<div class="intro"><b>Je afgeronde reis in soorten.</b> Kies je iNaturalist-gebruikersnaam en de begin- en einddatum met tijd. Het reisgebied volgt automatisch uit de locaties van je waarnemingen. De foto’s komen uit jouw openbare waarnemingen.</div>', unsafe_allow_html=True)
 if st.session_state.storage_notice:
     st.info(st.session_state.storage_notice)
@@ -222,6 +224,7 @@ if restore_token:
 
 with st.container(border=True):
     st.subheader("Reis instellen")
+    st.text_input("Hoe heet deze trip? (verplicht)", placeholder="Bijvoorbeeld: Suriname december 2025", key='trip_name', max_chars=120)
     user_col, from_col, to_col = st.columns([2, 1, 1])
     with user_col:
         username = st.text_input("Openbare iNaturalist-gebruikersnaam", placeholder="Bijvoorbeeld: jouw_gebruikersnaam", key="trip_username").strip()
@@ -256,13 +259,15 @@ with st.expander("Berekening hervatten met een herstartbestand"):
 
 
 if go:
-    if not username:
+    if not st.session_state.trip_name.strip():
+        st.error("Vul eerst een naam voor deze trip in.")
+    elif not username:
         st.error("Vul een iNaturalist-gebruikersnaam in.")
     elif datetime.combine(start, start_clock) > datetime.combine(end, end_clock):
         st.error("De einddatum en -tijd moeten op of na het begin liggen.")
     else:
         token = report_jobs().start((username, start.isoformat(), end.isoformat(),
-                                     start_clock.strftime("%H:%M"), end_clock.strftime("%H:%M"), extended_checks))
+                                     start_clock.strftime("%H:%M"), end_clock.strftime("%H:%M"), extended_checks, st.session_state.trip_name.strip()))
         st.session_state.report_job = token
         st.query_params["report"] = token
         st.session_state.loaded_report_job = None
@@ -462,7 +467,7 @@ if frame is not None and meta:
     st.caption("Gebied: " + (" of ".join(active_names) if active_names else "wereldwijd (geen gebiedsfilter)"))
     summary_slot = st.empty()
     with st.container(border=True):
-        st.text_input("Naam van deze trip", placeholder="Bijvoorbeeld: Voorjaarsreis Hérault 2026", key="trip_name", max_chars=120)
+        st.caption("Tripnaam: " + (st.session_state.trip_name or meta.get('trip_name') or 'Nog geen naam'))
         if st.button("💾 Trip bewaren", disabled=not st.session_state.trip_name.strip()):
             try:
                 snapshot = summary_snapshot(frame, meta, st.session_state.novelty, summary_counts)
@@ -510,3 +515,14 @@ if frame is not None and meta:
         if st.session_state.get("pdf_bytes") and st.session_state.get("pdf_key") == pdf_key:
             st.download_button("⬇️ PDF downloaden", st.session_state.pdf_bytes,
                                f"tripreport_{safe}_{meta['start']}_{meta['end']}.pdf", "application/pdf")
+    unclassified = meta.get('unidentified_records') or []
+    if unclassified:
+        st.subheader(f"Nog niet op soort geïdentificeerd ({len(unclassified):,} waarnemingen)")
+        cards=[]
+        for observation in unclassified:
+            photo=html.escape(str(observation.get('photo') or '').replace('medium.','small.'),quote=True)
+            name=html.escape(str(observation.get('name') or 'Onbekend'))
+            url=html.escape(str(observation.get('url') or ''),quote=True)
+            picture=f'<img src="{photo}" loading="lazy" alt="{name}">' if photo else '<div class="photo-empty">?</div>'
+            cards.append(f'<a href="{url}" target="_blank" rel="noopener">{picture}<div>{name}</div></a>')
+        st.markdown('<style>.unclassified-grid{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px}.unclassified-grid a{border:1px solid #d2dfd5;border-radius:6px;padding:4px;color:#173d2e;font-size:10px;overflow:hidden}.unclassified-grid img{width:100%;height:75px;object-fit:contain}.unclassified-grid .photo-empty{height:75px}</style><div class="unclassified-grid">'+''.join(cards)+'</div>',unsafe_allow_html=True)
