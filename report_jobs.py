@@ -1,6 +1,6 @@
 """Resumable server jobs. Workers never call Streamlit."""
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, time as clock, timedelta
+from datetime import date, time as clock, timedelta, datetime, timezone
 from pathlib import Path
 from threading import Lock
 import hashlib
@@ -128,6 +128,7 @@ def build_report(search, progress, checkpoint=None, save=None):
             frame = refresh_trip_rg(frame,user,meta['start'],meta['end'])
         except Exception as exc:
             warnings.append(f'RG-status kon niet worden ververst; de eerder opgehaalde status wordt gebruikt: {exc}')
+    meta['calculated_at'] = datetime.now(timezone.utc).isoformat()
     return {'frame': frame, 'meta': meta, 'novelty': novelty, 'firsts': firsts, 'warnings': warnings}
 
 
@@ -184,6 +185,14 @@ class ReportJobs:
             return pickle.loads(path.read_bytes())  # Only server-created files.
         return None
 
+    def _result(self, token):
+        path = self.directory/(token+'.pickle')
+        result = self._load(path)
+        if result and isinstance(result.get('meta'),dict):
+            # This completed-result file is written when the calculation finishes.
+            result['meta'].setdefault('calculated_at',datetime.fromtimestamp(path.stat().st_mtime,timezone.utc).isoformat())
+        return result
+
     def start(self, search):
         search = tuple(search)
         key = self.key(search)
@@ -199,7 +208,7 @@ class ReportJobs:
                 if previous:
                     saved = {**previous, 'token':uuid4().hex, 'search':search}
             token = saved['token'] if saved else uuid4().hex
-            result = self._load(self.directory/(token+'.pickle'))
+            result = self._result(token)
             if result is not None and self.builder is build_report and 'unidentified_records' not in result.get('meta',{}):
                 result = None  # Rebuild metadata from checkpoint; historical checks remain saved.
             if result is not None:
@@ -251,7 +260,7 @@ class ReportJobs:
                 if job['state'] != 'running' and time.time()-job.get('completed',job.get('started',0)) >= 7*86400:
                     return None
                 return job.copy()
-        result = self._load(self.directory/(token+'.pickle'))
+        result = self._result(token)
         if result is not None:
             if self.builder is build_report and 'unidentified_records' not in result.get('meta',{}):
                 return {'state':'paused','message':'Rapport bijwerken met de extra foto’s vanaf het opgeslagen punt'}

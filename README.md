@@ -1,4 +1,4 @@
-# Tripreport Verkenner - versie 13
+# Tripreport Verkenner - versie 14
 
 Een Streamlit-app voor openbare iNaturalist-waarnemingen tijdens een reis.
 
@@ -10,7 +10,7 @@ Een Streamlit-app voor openbare iNaturalist-waarnemingen tijdens een reis.
 4. Klik **Tripreport maken**. De voortgang vermeldt de actieve stap.
 5. De app begint met de heatmap en 25 km-cirkels, gevolgd door samenvatting en soortenkaarten met eigen foto's. De PDF begint met de bewaarde tripnaam, direct gevolgd door de samenvatting en dan de kaart op de eerste pagina. De toelichting onder de kaart is verwijderd. Daarna volgen fotopagina's met vier kolommen en vier rijen (16 soorten per volle pagina), in de gekozen soortenvolgorde. Er is geen CSV-export.
 
-Bovenaan de app staat **Versie 13**, zodat je kunt controleren of de nieuwe bestanden zijn gedeployed. Bestaande trips uit eerdere versies blijven bruikbaar. De PDF gebruikt de ingevulde tripnaam of vindt de passende bewaarde naam terug. De download heet exact de tripnaam met .pdf; tekens die niet in een bestandsnaam mogen worden door een underscore vervangen. Oude herstartbestanden zonder naam blijven laadbaar.
+Bovenaan de app staat **Versie 14**, zodat je kunt controleren of de nieuwe bestanden zijn gedeployed. Bestaande trips uit eerdere versies blijven bruikbaar. De PDF gebruikt de ingevulde tripnaam of vindt de passende bewaarde naam terug. De download heet exact de tripnaam met .pdf; tekens die niet in een bestandsnaam mogen worden door een underscore vervangen. Oude herstartbestanden zonder naam blijven laadbaar.
 
 ## Waarnemingen zonder soortidentificatie
 
@@ -71,3 +71,5 @@ De interactieve kaart is 680 pixels hoog en past het gebied met kleinere buitenm
 Een groene rand om de hele soortenkaart betekent dat minstens één van de waarnemingen uit de gekozen trip nu Research Grade is. Dit staat los van de gele/oranje/rode sterren en geldt in de app en PDF. De waarneming hoeft tijdens de reis nog geen RG te zijn geweest. Een waarneming buiten de gekozen trip telt niet mee, ook niet als die van dezelfde soort is.
 
 Bij een nieuwe berekening wordt de huidige RG-status na de stercontroles opnieuw opgehaald. Een eerder bewaard of geladen rapport kan een oudere status hebben: klik **RG-status actualiseren** om alleen deze status te vernieuwen en maak daarna opnieuw de PDF. Een mislukte verversing behoudt de oudere status en geeft een melding.
+
+De PDF vermeldt bovenaan de datum en tijd waarop de berekening afgerond is, in de tijdzone Europe/Amsterdam. Het is de berekeningsdatum, niet de datum van downloaden. Elke pagina heeft Pagina x van y, inclusief kaartpagina en de kleinere foto's achteraan. Bij oudere afgeronde serverrapporten wordt de bewaarde voltooiingstijd gebruikt; als de datum niet beschikbaar is, wordt dat vermeld.

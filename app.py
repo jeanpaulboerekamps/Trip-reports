@@ -147,7 +147,7 @@ if isinstance(storage_event, dict) and storage_event.get("nonce") != st.session_
     st.session_state.storage_action = {"op": "list", "nonce": "initial"}
 
 st.title("🧭 Tripreport Verkenner")
-st.caption("Versie 13 · PDF met tripnaam als bestandsnaam en groene RG-kaartranden")
+st.caption("Versie 14 · PDF met berekeningsdatum en Pagina x van y")
 st.markdown('<div class="intro"><b>Je afgeronde reis in soorten.</b> Kies je iNaturalist-gebruikersnaam en de begin- en einddatum met tijd. Het reisgebied volgt automatisch uit de locaties van je waarnemingen. De foto’s komen uit jouw openbare waarnemingen.</div>', unsafe_allow_html=True)
 if st.session_state.storage_notice:
     st.info(st.session_state.storage_notice)
