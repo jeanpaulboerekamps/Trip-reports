@@ -16,6 +16,8 @@ from reportlab.pdfgen import canvas
 from trip_data import summary_counts
 from trip_map import heatmap_image
 
+PDF_EXPORT_VERSION = 16
+
 INK = colors.HexColor("#173d2e")
 MUTED = colors.HexColor("#607468")
 PALE = colors.HexColor("#edf5ef")
@@ -139,6 +141,7 @@ def make_trip_pdf(frame, meta, novelty):
     c = canvas.Canvas(out, pagesize=A4, pageCompression=1)
     title = str(meta.get('trip_name') or 'Tripreport').strip()
     c.setTitle(title)
+    c.setCreator(f"Tripreport Verkenner · PDF-opmaak {PDF_EXPORT_VERSION}")
     page_w, page_h = A4
     margin, gutter, card_h = 35, 8, 161
     card_w = (page_w - 2 * margin - 3 * gutter) / 4

@@ -13,6 +13,7 @@ from streamlit_folium import st_folium
 from streamlit.components.v1 import declare_component
 
 from report_pdf import make_trip_pdf, pdf_trip_name, pdf_filename
+import report_pdf
 from trip_map import select_time_window, observation_points, infer_trip_area, leaflet_heatmap
 from report_jobs import ReportJobs
 from taxonomy import sort_species_overview
@@ -147,7 +148,7 @@ if isinstance(storage_event, dict) and storage_event.get("nonce") != st.session_
     st.session_state.storage_action = {"op": "list", "nonce": "initial"}
 
 st.title("🧭 Tripreport Verkenner")
-st.caption("Versie 14 · PDF met berekeningsdatum en Pagina x van y")
+st.caption("Versie 16 · Kaartteksten wijken uit bij overlap")
 st.markdown('<div class="intro"><b>Je afgeronde reis in soorten.</b> Kies je iNaturalist-gebruikersnaam en de begin- en einddatum met tijd. Het reisgebied volgt automatisch uit de locaties van je waarnemingen. De foto’s komen uit jouw openbare waarnemingen.</div>', unsafe_allow_html=True)
 if st.session_state.storage_notice:
     st.info(st.session_state.storage_notice)
@@ -512,15 +513,19 @@ if frame is not None and meta:
         st.download_button("Herstartbestand downloaden", completed_checkpoint, 'tripreport-herstart.json', 'application/json', key='completed_checkpoint')
     with download_controls.container():
         trip_title = pdf_trip_name(st.session_state.trip_name, st.session_state.saved_rows, meta, st.session_state.saved_trip_id)
-        pdf_key = (meta["username"], meta["start"], meta["end"], meta.get("start_time"), meta.get("end_time"), meta["geometry"], sort_by, trip_title)
-        if st.button("📄 PDF van volledig overzicht maken"):
+        export_version = getattr(report_pdf, 'PDF_EXPORT_VERSION', None)
+        export_ready = export_version == 16
+        if not export_ready:
+            st.error("De PDF-exportcode is nog verouderd. Vervang ook report_pdf.py door het bestand uit versie 16 en herstart de app.")
+        pdf_key = (export_version, meta.get('calculated_at'), meta["username"], meta["start"], meta["end"], meta.get("start_time"), meta.get("end_time"), meta["geometry"], sort_by, trip_title)
+        if st.button("📄 PDF van volledig overzicht maken", disabled=not export_ready):
             with st.spinner("PDF met heatmap en je eigen foto's maken…"):
                 try:
                     st.session_state.pdf_bytes = make_trip_pdf(ordered, {**meta, 'trip_name':trip_title}, st.session_state.novelty)
                     st.session_state.pdf_key = pdf_key
                 except Exception as exc:
                     st.error(f"De PDF kon niet worden gemaakt: {exc}")
-        if st.session_state.get("pdf_bytes") and st.session_state.get("pdf_key") == pdf_key:
+        if export_ready and st.session_state.get("pdf_bytes") and st.session_state.get("pdf_key") == pdf_key:
             st.download_button("⬇️ PDF downloaden", st.session_state.pdf_bytes,
                                pdf_filename(trip_title), "application/pdf")
     unclassified = meta.get('unidentified_records') or []

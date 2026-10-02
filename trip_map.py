@@ -129,6 +129,24 @@ def circle_ring(circle):
     return ring
 
 
+def label_positions(anchors, sizes, width, height):
+    """Place callouts beside their centres, avoiding earlier callout rectangles."""
+    placed = []
+    for (x, y), (w, h) in zip(anchors, sizes):
+        candidates = []
+        for shift in (0, -h-10, h+10, -2*(h+10), 2*(h+10)):
+            for side in (-1, 1):
+                left = x-85-w if side == -1 else x+85
+                left = max(8, min(width-w-8, left))
+                top = max(8, min(height-h-30, y-h/2+shift))
+                rect = (left, top, left+w, top+h)
+                overlap = sum(max(0, min(rect[2]+6, r[2]+6)-max(rect[0]-6, r[0]-6))*
+                              max(0, min(rect[3]+6, r[3]+6)-max(rect[1]-6, r[1]-6)) for r in placed)
+                candidates.append((overlap, abs(shift), side == 1, rect))
+        placed.append(min(candidates, key=lambda item: item[:3])[3])
+    return placed
+
+
 def leaflet_heatmap(points, geometry=None, circles=None):
     import folium
     from html import escape
@@ -139,6 +157,7 @@ def leaflet_heatmap(points, geometry=None, circles=None):
     result = folium.Map(location=centre, zoom_start=13, tiles='OpenStreetMap', control_scale=True)
     HeatMap(unwrapped, radius=18, blur=15, min_opacity=.25).add_to(result)
     bounds = list(unwrapped)
+    label_markers = []
     for circle in circles or []:
         lon = circle['lon']+360*round((centre[1]-circle['lon'])/360)
         location = [circle['lat'], lon]
@@ -150,12 +169,52 @@ def leaflet_heatmap(points, geometry=None, circles=None):
                       tooltip=f"Concentratie {circle['number']} · 25 km",
                       popup=escape(circle.get('countries') or 'Land onbekend')+'<br>'+lines).add_to(result)
         arrow = f'<svg width="230" height="{label_height}" style="position:absolute;left:0;top:0;overflow:visible"><path d="M 145 {label_height/2} L 228 {label_height/2} M 220 {label_height/2-4} L 228 {label_height/2} L 220 {label_height/2+4}" stroke="#5634a5" fill="none"/></svg>'
-        folium.Marker(location, icon=folium.DivIcon(icon_size=(230,label_height), icon_anchor=(230,label_height/2), html=
+        marker = folium.Marker(location, icon=folium.DivIcon(icon_size=(230,label_height), icon_anchor=(230,label_height/2), html=
                       arrow+'<div style="position:relative;width:138px;background:rgba(255,255,255,.88);border:1px solid #5634a5;border-radius:8px;'
                       'padding:2px;text-align:center;font:10px/12px sans-serif;color:#251745;white-space:nowrap">'
                       +lines+'</div>')).add_to(result)
+        label_markers.append(marker.get_name())
     result.fit_bounds([[min(p[0] for p in bounds), min(p[1] for p in bounds)],
                        [max(p[0] for p in bounds), max(p[1] for p in bounds)]], max_zoom=15, padding_top_left=[245,12], padding_bottom_right=[12,12])
+    if label_markers:
+        from branca.element import MacroElement
+        from jinja2 import Template
+        layout = MacroElement()
+        layout._template = Template('''{% macro script(this, kwargs) %}
+        (function() {
+          const map = {{this.map_name}}, markers = [{{this.markers}}];
+          function arrange() {
+            const used = [], size = map.getSize();
+            markers.forEach(marker => {
+              const el = marker.getElement(); if (!el) return;
+              const box = el.querySelector('div'), svg = el.querySelector('svg');
+              const p = map.latLngToContainerPoint(marker.getLatLng());
+              const w = box.offsetWidth, h = box.offsetHeight;
+              let best = null;
+              [0,-h-10,h+10,-2*(h+10),2*(h+10)].forEach(shift => {
+                [-1,1].forEach(side => {
+                  const l = Math.max(8,Math.min(size.x-w-8,side < 0 ? p.x-85-w : p.x+85));
+                  const t = Math.max(8,Math.min(size.y-h-30,p.y-h/2+shift));
+                  const r = [l,t,l+w,t+h];
+                  const overlap = used.reduce((sum,a) => sum + Math.max(0,Math.min(r[2]+6,a[2]+6)-Math.max(r[0]-6,a[0]-6))*Math.max(0,Math.min(r[3]+6,a[3]+6)-Math.max(r[1]-6,a[1]-6)),0);
+                  const score = overlap*10000+Math.abs(shift)*2+(side>0 ? 1 : 0);
+                  if (!best || score < best.score) best = {r,score};
+                });
+              });
+              used.push(best.r);
+              const dx = best.r[0]-p.x+230, dy = best.r[1]-p.y+h/2;
+              box.style.position='absolute'; box.style.left=dx+'px'; box.style.top=dy+'px';
+              const sx = dx+(best.r[0]>p.x ? 0 : w), sy = dy+h/2;
+              const tx = 230, ty = h/2, angle = Math.atan2(ty-sy,tx-sx);
+              svg.innerHTML = '<path d="M '+sx+' '+sy+' L '+tx+' '+ty+' M '+(tx-8*Math.cos(angle-.5))+' '+(ty-8*Math.sin(angle-.5))+' L '+tx+' '+ty+' L '+(tx-8*Math.cos(angle+.5))+' '+(ty-8*Math.sin(angle+.5))+'" stroke="#5634a5" fill="none"/>';
+            });
+          }
+          map.whenReady(arrange); map.on('zoomend moveend resize',arrange);
+        })();
+        {% endmacro %}''')
+        layout.map_name = result.get_name()
+        layout.markers = ','.join(label_markers)
+        result.add_child(layout)
     return result
 
 
@@ -179,6 +238,7 @@ def heatmap_image(points, width=1000, height=600, tile_loader=None, circles=None
     polygons = [geometry['coordinates']] if geometry['type'] == 'Polygon' else geometry['coordinates']
     bounds = [[lat,lon] for polygon in polygons for ring in polygon for lon,lat in ring]
     centre_lon = sum(p[1] for p in unwrapped)/len(unwrapped)
+    anchors, sizes, callouts = [], [], []
     for circle in circles or []:
         bounds.extend([[lat, lon+360*round((centre_lon-lon)/360)] for lat,lon in circle_ring(circle)])
     def project(lat, lon, zoom):
@@ -246,13 +306,22 @@ def heatmap_image(points, width=1000, height=600, tile_loader=None, circles=None
         lines = circle_lines(circle)
         box_height = len(lines)*14+6
         box_width = max(draw.textlength(line, font=font) for line in lines)+8
-        right = max(box_width+8,x-85)
-        label_x = right-box_width/2
-        draw.line((right+3,y,x-2,y),fill='#5634a5',width=2)
-        draw.polygon([(x,y),(x-8,y-4),(x-8,y+4)],fill='#5634a5')
-        draw.rounded_rectangle((right-box_width,y-box_height/2,right,y+box_height/2), radius=6, fill='white', outline='#5634a5')
+        anchors.append((x,y))
+        sizes.append((box_width,box_height))
+        callouts.append(lines)
+    rectangles = label_positions(anchors, sizes, width, height)
+    for (x,y), lines, rect in zip(anchors, callouts, rectangles):
+        l,t,r,b = rect
+        label_x = (l+r)/2
+        sx = r+3 if label_x < x else l-3
+        sy = (t+b)/2
+        angle = math.atan2(y-sy,x-sx)
+        draw.line((sx,sy,x,y),fill='#5634a5',width=2)
+        draw.polygon([(x,y),(x-8*math.cos(angle-.5),y-8*math.sin(angle-.5)),
+                      (x-8*math.cos(angle+.5),y-8*math.sin(angle+.5))],fill='#5634a5')
+        draw.rounded_rectangle(rect, radius=6, fill='white', outline='#5634a5')
         for i,line in enumerate(lines):
-            draw.text((label_x-draw.textlength(line,font=font)/2,y-box_height/2+3+i*14),line,fill='#251745',font=font)
+            draw.text((label_x-draw.textlength(line,font=font)/2,t+3+i*14),line,fill='#251745',font=font)
     draw.rectangle((0,height-25,width,height), fill='white')
     draw.text((8,height-19), '(c) OpenStreetMap contributors | Blauw: lage dichtheid - rood: hoge dichtheid', fill='#304a39')
     if missing:
