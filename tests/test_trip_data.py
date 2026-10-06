@@ -25,10 +25,10 @@ class TripDataTests(unittest.TestCase):
 
     def test_star_priority_and_unverified_area(self):
         ids = {42}
-        self.assertEqual(trip_data.star_for(ids, (42, 42, 42, True)), "🔴")
-        self.assertEqual(trip_data.star_for(ids, (42, 42, 10, True)), "🟠")
-        self.assertEqual(trip_data.star_for(ids, (42, 42, 10, False)), "🟡")
-        self.assertEqual(trip_data.star_for(ids, (10, 9, 8, True)), "")
+        self.assertEqual(trip_data.star_for(ids, (42, 42, 42, True), has_area=True)["star"], "🔴")
+        self.assertEqual(trip_data.star_for(ids, (42, 42, 10, True), has_area=True)["star"], "🟠")
+        self.assertEqual(trip_data.star_for(ids, (42, 42, 10, False), has_area=True)["star"], "🟡")
+        self.assertEqual(trip_data.star_for(ids, (10, 9, 8, True), has_area=True)["star"], "")
 
     def test_date_window_splits_before_ten_thousand_cap(self):
         def fake_get(path, params):
