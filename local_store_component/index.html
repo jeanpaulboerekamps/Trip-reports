@@ -2,7 +2,9 @@
 <html lang="nl"><head><meta charset="utf-8"></head><body style="margin:0">
 <script>
 const STORAGE_KEY = "tripreport_verkenner_saved_trips_v1";
+const REPORT_KEY = "tripreport_last_report_v1";
 let lastNonce = null;
+let lastActive = null;
 function send(type, extra = {}) {
   window.parent.postMessage({isStreamlitMessage:true, type, ...extra}, "*");
 }
@@ -11,19 +13,40 @@ function read() {
   if (!Array.isArray(value)) throw new Error("De bewaarde trips zijn beschadigd.");
   return value;
 }
+function mergeRecord(old, incoming) {
+  if (!old) return incoming;
+  const snapshots = row => row.versions && row.versions.length ? row.versions : [{
+    id: "legacy-" + row.id, calculated_at: row.search.calculated_at || null,
+    search: row.search, summary: row.summary
+  }];
+  const versions = new Map(snapshots(old).map(v => [v.id, v]));
+  snapshots(incoming).forEach(v => { if (!versions.has(v.id)) versions.set(v.id, v); });
+  const ordered = [...versions.values()].sort((a, b) =>
+    (a.calculated_at ? Date.parse(a.calculated_at) : -Infinity) -
+    (b.calculated_at ? Date.parse(b.calculated_at) : -Infinity));
+  const latest = ordered[ordered.length - 1];
+  return {...old, ...incoming, versions: ordered, search: latest.search, summary: latest.summary};
+}
 function publish(nonce, records, error = "") {
-  send("streamlit:setComponentValue", {dataType:"json", value:{nonce, records, error}});
+  let last_report = localStorage.getItem(REPORT_KEY) || "";
+  if (!/^[a-f0-9]{32}$/.test(last_report)) last_report = "";
+  send("streamlit:setComponentValue", {dataType:"json", value:{nonce, records, error, last_report}});
 }
 window.addEventListener("message", event => {
   if (event.data.type !== "streamlit:render") return;
-  const {op = "list", nonce = "initial", record, imported} = event.data.args || {};
-  if (nonce === lastNonce) return;
+  const {op = "list", nonce = "initial", record, imported, active_report} = event.data.args || {};
+  const changed = active_report && active_report !== lastActive;
+  if (nonce === lastNonce && !changed) return;
   lastNonce = nonce;
   try {
+    if (active_report && /^[a-f0-9]{32}$/.test(active_report)) {
+      localStorage.setItem(REPORT_KEY, active_report);
+      lastActive = active_report;
+    }
     let records = read();
     if (op === "save") {
       const pos = records.findIndex(x => x.id === record.id);
-      if (pos < 0) records.push(record); else records[pos] = record;
+      if (pos < 0) records.push(record); else records[pos] = mergeRecord(records[pos], record);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
     } else if (op === "import") {
       if (!Array.isArray(imported) || imported.length > 1000 ||
@@ -31,7 +54,7 @@ window.addEventListener("message", event => {
         throw new Error("Dit bestand bevat geen geldige trips.");
       }
       const byId = new Map(records.map(x => [x.id, x]));
-      imported.forEach(x => byId.set(x.id, x));
+      imported.forEach(x => byId.set(x.id, mergeRecord(byId.get(x.id), x)));
       records = [...byId.values()];
       localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
     }
