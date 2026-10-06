@@ -34,7 +34,7 @@ function publish(nonce, records, error = "") {
 }
 window.addEventListener("message", event => {
   if (event.data.type !== "streamlit:render") return;
-  const {op = "list", nonce = "initial", record, imported, active_report} = event.data.args || {};
+  const {op = "list", nonce = "initial", record, imported, active_report, trip_id, locations} = event.data.args || {};
   const changed = active_report && active_report !== lastActive;
   if (nonce === lastNonce && !changed) return;
   lastNonce = nonce;
@@ -47,6 +47,18 @@ window.addEventListener("message", event => {
     if (op === "save") {
       const pos = records.findIndex(x => x.id === record.id);
       if (pos < 0) records.push(record); else records[pos] = mergeRecord(records[pos], record);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+    } else if (op === "delete") {
+      records = records.filter(x => x.id !== trip_id);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+    } else if (op === "locations") {
+      (locations || []).forEach(item => {
+        const row = records.find(x => x.id === item.id);
+        if (row && Array.isArray(item.map_location) && item.map_location.length === 2 &&
+            item.map_location.every(Number.isFinite) && Math.abs(item.map_location[0]) <= 90 && Math.abs(item.map_location[1]) <= 180) {
+          row.map_location = item.map_location;
+        }
+      });
       localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
     } else if (op === "import") {
       if (!Array.isArray(imported) || imported.length > 1000 ||
