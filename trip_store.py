@@ -50,6 +50,11 @@ def make_record(name, search, summary, trip_id=None, existing=None):
     names = [*search.get("place_names", []),
              *([search.get("area_name") or "Automatisch reisgebied"] if search.get("geometry") else [])]
     # Geometry is enough for the overview map; do not store all observation locations.
+    # Retain a real observation location as compact metadata for future maps.
+    from trip_locations import valid_location
+    location = next((valid_location(point) for point in search.get("heat_points", [])
+                     if valid_location(point)), None)
+    search = {**search, **({"map_location": location} if location else {})}
     search = deepcopy({k: v for k, v in search.items()
                        if k not in ("heat_points", "concentrations", "unidentified_records")})
     stamp = search.get("calculated_at")

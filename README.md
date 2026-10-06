@@ -1,6 +1,15 @@
-# Tripreport Verkenner - versie 17
+# Tripreport Verkenner - versie 18
 
 Een Streamlit-app voor openbare iNaturalist-waarnemingen tijdens een reis.
+
+## Nieuw in versie 18
+
+- Kies een trip direct in de overzichtstabel door de rij aan te tikken. Er is geen vooraf geselecteerde trip en geen aparte keuzelijst. Pas na selectie verschijnen **Opnieuw berekenen**, **Trip verwijderen** en **Versies bekijken**. De kolom Trip blijft vaststaan bij horizontaal scrollen.
+- **Trip verwijderen** verwijdert die trip en alle bijbehorende versies uit deze browser; andere trips blijven behouden. Een gedownloade reservekopie wordt niet gewijzigd.
+- De gebruikersnaam is op een nieuw beginscherm vooraf ingevuld met `jeanpaulboerekamps`, ook bij een leeg veld uit een oudere sessie. Een andere ingevulde gebruikersnaam blijft behouden bij terugkeer uit het reisformulier. Een leeg gemaakte gebruikersnaam valt terug op de standaard.
+- Oudere trips zonder opgeslagen reisgebied krijgen automatisch een kaartlocatie uit hun openbare iNaturalist-waarnemingen in de bewaarde reisperiode. Datums, tijden en eventuele oude plaatsfilters worden gerespecteerd. Alleen locatiegegevens worden opgehaald; de historische totalen en versies veranderen niet. De herstelde locatie wordt in dezelfde browser opgeslagen en meegenomen in reservekopieën.
+- Nieuwe rapporten bewaren een compacte openbare waarnemingslocatie voor de kaart. De kaart past zich opnieuw aan wanneer trips of locaties veranderen. Kaartmarkers zijn getekende cirkels, zodat een ontbrekend markerplaatje op iPad geen onleesbare pin meer oplevert.
+- Als er geen openbare locatie gevonden wordt of iNaturalist niet bereikbaar is, noemt het scherm de ontbrekende trips en kun je **Kaartlocaties opnieuw ophalen** gebruiken. Er wordt geen locatie uit de tripnaam geraden.
 
 ## Nieuw in versie 17
 
@@ -68,10 +77,10 @@ De interactieve kaart gebruikt OpenStreetMap. De PDF haalt een beperkte hoeveelh
 
 Tripinstellingen en samenvattingen worden lokaal in je browser bewaard; ze zijn apart van de server-herstartpunten. Ze kunnen als JSON worden geëxporteerd en geïmporteerd. Bewaarde trips uit oudere versies gebruiken standaardtijden 00:00 en 23:59.
 
-Zet alle bronbestanden, inclusief `report_jobs.py`, `concentrations.py`, `trip_map.py`, `report_pdf.py`, `trip_store.py`, `trip_overview.py`, de component en requirements, in de Streamlit-repository. Startbestand: `app.py`.
+Zet alle bronbestanden, inclusief `report_jobs.py`, `concentrations.py`, `trip_map.py`, `report_pdf.py`, `trip_store.py`, `trip_overview.py`, `trip_locations.py`, de component en requirements, in de Streamlit-repository. Startbestand: `app.py`.
 
 Installatie: `pip install -r requirements.txt`.
-Tests: voer na installatie `python -m unittest discover -s tests -v` uit. Dit controleert versieopslag, migratie, import, verse berekeningen en navigatie met Streamlit AppTest. De browsercomponent kan apart worden getest met `node tests/test_browser_store.js`.
+Tests: voer na installatie `python -m unittest discover -s tests -v` uit. Dit controleert versieopslag, migratie, import, verse berekeningen en navigatie met Streamlit AppTest. Ook tabelselectie, verwijderen, standaardgebruikersnaam en locatieherstel worden gecontroleerd. De browsercomponent kan apart worden getest met `node tests/test_browser_store.js`.
 
 Bijwerken: vervang alle bronbestanden uit dit ZIP-bestand in je bestaande Streamlit-project en herstart de app. De browseropslagsleutel blijft gelijk, zodat bewaarde trips op dezelfde app-URL behouden blijven. Maak voor de update een JSON-reservekopie.
 

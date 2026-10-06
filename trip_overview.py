@@ -1,13 +1,12 @@
 """Overview map and compact tables for saved trip versions."""
 from zoneinfo import ZoneInfo
 import html
-import json
 
 import folium
-from shapely.geometry import shape
 from folium.plugins import MarkerCluster
 
 from trip_store import normalize_record, version_key
+from trip_locations import stored_trip_location
 
 
 def calculation_label(stamp):
@@ -47,29 +46,20 @@ def overview_map(rows):
     missing = 0
     for raw in rows:
         row = normalize_record(raw)
-        geometry = row["search"].get("geometry")
-        try:
-            geometry = json.loads(geometry) if isinstance(geometry, str) and geometry else geometry
-            region = shape(geometry) if geometry else None
-            if region is None or region.is_empty or not region.is_valid:
-                missing += 1
-                continue
-            point = region.representative_point()
-            # A multipolygon may cross the date line: use one real point, not the centroid in the ocean.
-            lat, lon = point.y, point.x
-            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-                missing += 1
-                continue
-        except (ValueError, TypeError, KeyError, AttributeError):
+        location = stored_trip_location(row)
+        if location is None:
             missing += 1
             continue
+        lat, lon = location
         latest = max(row["versions"], key=version_key)
         summary = latest["summary"]
         popup = (f"<b>{html.escape(row['name'])}</b><br>"
                  f"{html.escape(row['start_date'])} t/m {html.escape(row['end_date'])}<br>"
                  f"{summary['observations']} waarnemingen · {summary['species']} soorten<br>"
                  f"Berekend: {html.escape(calculation_label(latest.get('calculated_at')))}")
-        folium.Marker([lat, lon], tooltip=html.escape(row["name"]),
+        folium.CircleMarker([lat, lon], radius=8, color="#205e3b", weight=2,
+                            fill=True, fill_color="#3c995c", fill_opacity=0.9,
+                            tooltip=html.escape(row["name"]),
                       popup=folium.Popup(popup, max_width=320)).add_to(cluster)
         bounds.append([lat, lon])
     if bounds:
