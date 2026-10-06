@@ -24,47 +24,10 @@ EARLIEST_TRIP_DATE = date(1965, 1, 1)
 
 # Embedded so a single app.py update can start even if the component directory
 # was not uploaded by the hosting interface.
-_BROWSER_COMPONENT_HTML = "<!doctype html>\n<html lang=\"nl\"><head><meta charset=\"utf-8\"></head><body style=\"margin:0\">\n<script>\nconst STORAGE_KEY = \"tripreport_verkenner_saved_trips_v1\";\nconst REPORT_KEY = \"tripreport_last_report_v1\";\nlet lastNonce = null;\nlet lastActive = null;\nfunction send(type, extra = {}) {\n  window.parent.postMessage({isStreamlitMessage:true, type, ...extra}, \"*\");\n}\nfunction read() {\n  const value = JSON.parse(localStorage.getItem(STORAGE_KEY) || \"[]\");\n  if (!Array.isArray(value)) throw new Error(\"De bewaarde trips zijn beschadigd.\");\n  return value;\n}\nfunction publish(nonce, records, error = \"\") {\n  let last_report = localStorage.getItem(REPORT_KEY) || \"\";\n  if (!/^[a-f0-9]{32}$/.test(last_report)) last_report = \"\";\n  send(\"streamlit:setComponentValue\", {dataType:\"json\", value:{nonce, records, error, last_report}});\n}\nwindow.addEventListener(\"message\", event => {\n  if (event.data.type !== \"streamlit:render\") return;\n  const {op = \"list\", nonce = \"initial\", record, imported, active_report} = event.data.args || {};\n  const changed = active_report && active_report !== lastActive;\n  if (nonce === lastNonce && !changed) return;\n  lastNonce = nonce;\n  try {\n    if (active_report && /^[a-f0-9]{32}$/.test(active_report)) {\n      localStorage.setItem(REPORT_KEY, active_report);\n      lastActive = active_report;\n    }\n    let records = read();\n    if (op === \"save\") {\n      const pos = records.findIndex(x => x.id === record.id);\n      if (pos < 0) records.push(record); else records[pos] = record;\n      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));\n    } else if (op === \"import\") {\n      if (!Array.isArray(imported) || imported.length > 1000 ||\n          !imported.every(x => x && typeof x.id === \"string\" && x.search && x.summary)) {\n        throw new Error(\"Dit bestand bevat geen geldige trips.\");\n      }\n      const byId = new Map(records.map(x => [x.id, x]));\n      imported.forEach(x => byId.set(x.id, x));\n      records = [...byId.values()];\n      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));\n    }\n    publish(nonce, records);\n  } catch (error) {\n    publish(nonce, [], String(error.message || error));\n  }\n});\nsend(\"streamlit:componentReady\", {apiVersion:1});\nsend(\"streamlit:setFrameHeight\", {height:0});\n</script>\n</body></html>\n"
+_BROWSER_COMPONENT_HTML = '<!doctype html>\n<html lang="nl"><head><meta charset="utf-8"></head><body style="margin:0">\n<script>\nconst STORAGE_KEY = "tripreport_verkenner_saved_trips_v1";\nconst REPORT_KEY = "tripreport_last_report_v1";\nlet lastNonce = null;\nlet lastActive = null;\nfunction send(type, extra = {}) {\n  window.parent.postMessage({isStreamlitMessage:true, type, ...extra}, "*");\n}\nfunction read() {\n  const value = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");\n  if (!Array.isArray(value)) throw new Error("De bewaarde trips zijn beschadigd.");\n  return value;\n}\nfunction mergeRecord(old, incoming) {\n  if (!old) return incoming;\n  const snapshots = row => row.versions && row.versions.length ? row.versions : [{\n    id: "legacy-" + row.id, calculated_at: row.search.calculated_at || null,\n    search: row.search, summary: row.summary\n  }];\n  const versions = new Map(snapshots(old).map(v => [v.id, v]));\n  snapshots(incoming).forEach(v => { if (!versions.has(v.id)) versions.set(v.id, v); });\n  const ordered = [...versions.values()].sort((a, b) =>\n    (a.calculated_at ? Date.parse(a.calculated_at) : -Infinity) -\n    (b.calculated_at ? Date.parse(b.calculated_at) : -Infinity));\n  const latest = ordered[ordered.length - 1];\n  return {...old, ...incoming, versions: ordered, search: latest.search, summary: latest.summary};\n}\nfunction publish(nonce, records, error = "") {\n  let last_report = localStorage.getItem(REPORT_KEY) || "";\n  if (!/^[a-f0-9]{32}$/.test(last_report)) last_report = "";\n  send("streamlit:setComponentValue", {dataType:"json", value:{nonce, records, error, last_report}});\n}\nwindow.addEventListener("message", event => {\n  if (event.data.type !== "streamlit:render") return;\n  const {op = "list", nonce = "initial", record, imported, active_report} = event.data.args || {};\n  const changed = active_report && active_report !== lastActive;\n  if (nonce === lastNonce && !changed) return;\n  lastNonce = nonce;\n  try {\n    if (active_report && /^[a-f0-9]{32}$/.test(active_report)) {\n      localStorage.setItem(REPORT_KEY, active_report);\n      lastActive = active_report;\n    }\n    let records = read();\n    if (op === "save") {\n      const pos = records.findIndex(x => x.id === record.id);\n      if (pos < 0) records.push(record); else records[pos] = mergeRecord(records[pos], record);\n      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));\n    } else if (op === "import") {\n      if (!Array.isArray(imported) || imported.length > 1000 ||\n          !imported.every(x => x && typeof x.id === "string" && x.search && x.summary)) {\n        throw new Error("Dit bestand bevat geen geldige trips.");\n      }\n      const byId = new Map(records.map(x => [x.id, x]));\n      imported.forEach(x => byId.set(x.id, mergeRecord(byId.get(x.id), x)));\n      records = [...byId.values()];\n      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));\n    }\n    publish(nonce, records);\n  } catch (error) {\n    publish(nonce, [], String(error.message || error));\n  }\n});\nsend("streamlit:componentReady", {apiVersion:1});\nsend("streamlit:setFrameHeight", {height:0});\n</script>\n</body></html>\n'
 
-def make_record(name, search, summary, trip_id=None):
-    name = name.strip()
-    if not name or len(name) > 120:
-        raise ValueError("Geef de trip een naam van maximaal 120 tekens.")
-    names = [*search.get("place_names", []),
-             *([search.get("area_name") or "Getekend gebied"] if search.get("geometry") else [])]
-    search = {key: value for key, value in search.items() if key not in ("heat_points", "concentrations", "unidentified_records")}
-    return {"id": trip_id or str(uuid4()), "name": name, "username": search["username"],
-            "start_date": search["start"], "end_date": search["end"],
-            "area_label": " of ".join(names) if names else "Wereldwijd",
-            "search": search, "summary": summary}
-
-def summary_snapshot(frame, meta, novelty, counter):
-    counts = counter(novelty, frame["species_id"], bool(meta["places"] or meta["geometry"]))
-    return {"observations": int(meta["observation_total"]),
-            "unidentified": int(meta.get("unidentified_total", 0)),
-            "species": len(frame), "own": counts["own"], "area": counts["area"],
-            "global": counts["global"], "unresolved": counts["unresolved"]}
-
-def matches_search(row, value):
-    haystack = " ".join(str(row.get(key) or "") for key in
-                        ("name", "username", "area_label", "start_date", "end_date")).casefold()
-    return all(term in haystack for term in value.casefold().split())
-
-def validate_import(raw):
-    records = json.loads(raw)
-    if not isinstance(records, list) or len(records) > 1000:
-        raise ValueError("Het bestand bevat geen geldige lijst met trips.")
-    required = ("id", "name", "username", "start_date", "end_date", "area_label", "search", "summary")
-    for row in records:
-        if not isinstance(row, dict) or not all(k in row for k in required):
-            raise ValueError("Het bestand bevat een ongeldige trip.")
-        if not isinstance(row["id"], str) or not isinstance(row["search"], dict) or not isinstance(row["summary"], dict):
-            raise ValueError("Het bestand bevat een ongeldige trip.")
-        if not all(k in row["search"] for k in ("username", "start", "end", "places", "geometry")):
-            raise ValueError("Het bestand mist zoekkenmerken.")
-        date.fromisoformat(row["start_date"])
-        date.fromisoformat(row["end_date"])
-    return records
+from trip_store import make_record, summary_snapshot, matches_search, validate_import, normalize_record, merge_records, same_trip
+from trip_overview import overview_map, trip_table, version_table, calculation_label
 
 st.set_page_config(page_title="Tripreport Verkenner", page_icon="🧭", layout="wide")
 st.markdown("""<style>
@@ -93,10 +56,11 @@ st.markdown("""<style>
 for key, value in {"places": [], "geometry": None, "area_name": "", "trip": None, "query": None, "novelty": {}, "place_results": [], "show_map": False}.items():
     if key not in st.session_state:
         st.session_state[key] = value
-for key, value in {"trip_username": "", "trip_start": date.today() - timedelta(days=7),
+for key, value in {"trip_username": "jeanpaulboerekamps", "trip_start": date.today() - timedelta(days=7),
                    "trip_end": date.today() - timedelta(days=1), "trip_start_time": time(0, 0),
                    "trip_end_time": time(23, 59), "trip_name": "",
-                   "saved_trip_id": None, "saved_search": None, "show_saved": False,
+                   "saved_trip_id": None, "saved_search": None, "page": "report" if st.query_params.get("report") else "home",
+                   "overview_username": st.session_state.get("overview_user_filter", "jeanpaulboerekamps"), "previous_report_token": None,
                    "saved_rows": [], "storage_action": {"op": "list", "nonce": "initial"},
                    "last_storage_nonce": None, "storage_notice": ""}.items():
     if key not in st.session_state:
@@ -116,14 +80,13 @@ if not (component_dir / "index.html").is_file():
 browser_store = declare_component("trip_browser_store", path=str(component_dir))
 action = st.session_state.storage_action
 storage_event = browser_store(**action, active_report=st.session_state.get('report_job') or st.query_params.get('report'), key="trip_browser_store")
-if isinstance(storage_event, dict) and not st.session_state.get('report_job') and not st.query_params.get('report'):
+if isinstance(storage_event, dict):
     previous_report = storage_event.get('last_report')
-    if isinstance(previous_report,str) and re.fullmatch(r'[a-f0-9]{32}', previous_report):
-        st.session_state.report_job = previous_report
-        st.query_params['report'] = previous_report
+    if isinstance(previous_report, str) and re.fullmatch(r'[a-f0-9]{32}', previous_report):
+        st.session_state.previous_report_token = previous_report
 
 restore_token = st.session_state.get('report_job') or st.query_params.get('report')
-if restore_token and st.session_state.get('restored_form_token') != restore_token:
+if st.session_state.page == 'report' and restore_token and st.session_state.get('restored_form_token') != restore_token:
     settings = report_jobs().settings(restore_token)
     if settings:
         st.session_state.trip_username = settings[0]
@@ -140,55 +103,105 @@ if isinstance(storage_event, dict) and storage_event.get("nonce") != st.session_
     if storage_event.get("error"):
         st.session_state.storage_notice = "Opslag in deze browser is mislukt: " + storage_event["error"]
     else:
-        st.session_state.saved_rows = storage_event.get("records", [])
+        try:
+            st.session_state.saved_rows = validate_import(json.dumps(storage_event.get("records", [])))
+        except (ValueError, TypeError, KeyError) as exc:
+            st.session_state.storage_notice = "Bewaarde trips konden niet worden gelezen: " + str(exc)
         if action.get("op") == "save":
-            st.session_state.storage_notice = "Trip is in deze browser bewaard."
+            st.session_state.storage_notice = "Tripversie is in deze browser bewaard."
         elif action.get("op") == "import":
             st.session_state.storage_notice = "Trips zijn geïmporteerd."
     st.session_state.storage_action = {"op": "list", "nonce": "initial"}
 
+def clear_report():
+    for key in ("report_job", "loaded_report_job", "restored_form_token", "pdf_bytes", "pdf_key"):
+        st.session_state.pop(key, None)
+    st.query_params.pop("report", None)
+    st.session_state.trip = None
+    st.session_state.query = None
+    st.session_state.novelty = {}
+
+
+def open_trip(row):
+    clear_report()
+    saved = row["search"]
+    st.session_state.trip_username = saved["username"]
+    st.session_state.trip_start = date.fromisoformat(saved["start"])
+    st.session_state.trip_end = date.fromisoformat(saved["end"])
+    st.session_state.trip_start_time = time.fromisoformat(saved.get("start_time", "00:00"))
+    st.session_state.trip_end_time = time.fromisoformat(saved.get("end_time", "23:59"))
+    st.session_state.places = [dict(place) for place in saved.get("selected_places", [])]
+    st.session_state.geometry = json.loads(saved["geometry"]) if isinstance(saved.get("geometry"), str) and saved["geometry"] else saved.get("geometry")
+    st.session_state.area_name = saved.get("area_name", "")
+    st.session_state.trip_name = row["name"]
+    st.session_state.map_extra_choice = saved.get("map_extended_checks", False)
+    st.session_state.saved_trip_id = row["id"]
+    st.session_state.saved_search = saved
+    st.session_state.page = "report"
+    st.rerun()
+
+
 st.title("🧭 Tripreport Verkenner")
-st.caption("Versie 16 · Kaartteksten wijken uit bij overlap")
-st.markdown('<div class="intro"><b>Je afgeronde reis in soorten.</b> Kies je iNaturalist-gebruikersnaam en de begin- en einddatum met tijd. Het reisgebied volgt automatisch uit de locaties van je waarnemingen. De foto’s komen uit jouw openbare waarnemingen.</div>', unsafe_allow_html=True)
+st.caption("Versie 17 · Tripoverzicht en versies per berekendatum")
 if st.session_state.storage_notice:
     st.info(st.session_state.storage_notice)
     st.session_state.storage_notice = ""
 
-if st.button("📚 Bewaarde trips" if not st.session_state.show_saved else "📚 Bewaarde trips sluiten"):
-    st.session_state.show_saved = not st.session_state.show_saved
-if st.session_state.show_saved:
-    with st.container(border=True):
-        st.subheader("Bewaarde trips op dit apparaat")
-        st.caption("Deze trips staan in de opslag van deze browser. Gebruik export als reservekopie of voor een andere browser.")
-        needle = st.text_input("Zoek op tripnaam, gebruiker, gebied of datum")
-        saved_rows = [row for row in st.session_state.saved_rows if matches_search(row, needle)]
-        st.caption(f"{len(saved_rows)} trips gevonden")
-        for row in sorted(saved_rows, key=lambda x: x.get("start_date", ""), reverse=True):
-            with st.container(border=True):
-                st.markdown(f"**{row['name']}** · {row['username']} · {row['start_date']} t/m {row['end_date']}")
-                st.caption("Gebied: " + row["area_label"])
-                summary = row["summary"]
-                st.write(f"{summary['observations']} waarnemingen · {summary['species']} soorten · {summary['unidentified']} niet op soort · "
-                         f"{summary['own']} nieuw voor mij · {summary['area'] if summary['area'] is not None else '—'} nieuw in gebied · {summary['global'] if summary['global'] is not None else '—'} nieuw op iNaturalist")
-                if st.button("Zoekkenmerken laden", key="load_" + row["id"]):
-                    saved = row["search"]
-                    st.session_state.trip_username = saved["username"]
-                    st.session_state.trip_start = date.fromisoformat(saved["start"])
-                    st.session_state.trip_end = date.fromisoformat(saved["end"])
-                    st.session_state.trip_start_time = time.fromisoformat(saved.get("start_time", "00:00"))
-                    st.session_state.trip_end_time = time.fromisoformat(saved.get("end_time", "23:59"))
-                    st.session_state.places = [dict(place) for place in saved.get("selected_places", [])]
-                    st.session_state.geometry = json.loads(saved["geometry"]) if saved.get("geometry") else None
-                    st.session_state.area_name = saved.get("area_name", "")
-                    st.session_state.trip_name = row["name"]
-                    st.session_state.saved_trip_id = row["id"]
-                    st.session_state.saved_search = saved
-                    st.session_state.trip = None
-                    st.session_state.query = None
-                    st.session_state.novelty = {}
-                    st.session_state.show_saved = False
-                    st.rerun()
-        st.download_button("⬇️ Reservekopie downloaden", json.dumps(st.session_state.saved_rows, ensure_ascii=False, indent=2).encode("utf-8"),
+if st.session_state.page == "home":
+    title_col, new_col = st.columns([4, 1])
+    title_col.subheader("Mijn trips")
+    if new_col.button("Nieuwe trip", type="primary", use_container_width=True):
+        clear_report()
+        st.session_state.trip_username = st.session_state.overview_username.strip() or "jeanpaulboerekamps"
+        st.session_state.trip_name = ""
+        st.session_state.trip_start = date.today() - timedelta(days=7)
+        st.session_state.trip_end = date.today() - timedelta(days=1)
+        st.session_state.trip_start_time = time(0, 0)
+        st.session_state.trip_end_time = time(23, 59)
+        st.session_state.saved_trip_id = None
+        st.session_state.saved_search = None
+        st.session_state.places = []
+        st.session_state.geometry = None
+        st.session_state.area_name = ""
+        st.session_state.map_extra_choice = False
+        st.session_state.page = "report"
+        st.rerun()
+    selected_user = st.text_input("iNaturalist-gebruikersnaam", key="overview_username").strip().casefold()
+    st.session_state.overview_user_filter = st.session_state.overview_username
+    user_rows = sorted([row for row in st.session_state.saved_rows
+                        if row["username"].strip().casefold() == selected_user],
+                       key=lambda row: row["start_date"], reverse=True)
+    st.caption("Je bewaarde trips in deze browser. Totalen zijn van de meest recente berekening. Berekentijden: Europe/Amsterdam.")
+    st.subheader("Trips op de kaart")
+    world, missing = overview_map(user_rows)
+    st_folium(world, height=430, use_container_width=True, returned_objects=[], key="trips_overview_map")
+    if missing:
+        st.caption(f"{missing} trip(s) hebben geen bruikbaar openbaar reisgebied en staan alleen in de tabel.")
+    needle = st.text_input("Zoek op tripnaam, gebied of datum", key="trip_overview_search")
+    rows = [row for row in user_rows if matches_search(row, needle)]
+    st.subheader(f"Tripoverzicht ({len(rows)})")
+    if rows:
+        st.dataframe(pd.DataFrame(trip_table(rows)), hide_index=True, use_container_width=True)
+        row = st.selectbox("Trip bekijken", rows, format_func=lambda row: f"{row['name']} · {row['start_date']} t/m {row['end_date']}",
+                           key="overview_trip_choice")
+        with st.expander("Versies bekijken", expanded=True):
+            st.caption("Elke rij bevat de bewaarde totalen van één berekening. Een nieuwe berekening kan veranderen door latere identificaties.")
+            st.dataframe(pd.DataFrame(version_table(row)), hide_index=True, use_container_width=True)
+            if st.button("Nieuwe versie berekenen", key="recalculate_" + row["id"]):
+                open_trip(row)
+            st.caption("Deze knop laadt de reisinstellingen. Klik daarna op Tripreport maken en bewaar de berekende versie.")
+    else:
+        st.info("Geen bewaarde trips voor deze selectie. Maak een nieuwe trip of importeer je reservekopie.")
+    previous_token = st.session_state.get("report_job") or st.session_state.previous_report_token
+    if previous_token:
+        if st.button("Verdergaan met vorige berekening"):
+            st.session_state.report_job = previous_token
+            st.session_state.page = "report"
+            st.query_params["report"] = previous_token
+            st.rerun()
+    with st.expander("Reservekopie downloaden of importeren"):
+        st.caption("De reservekopie bevat alle gebruikers, trips en bewaarde versies in deze browser.")
+        st.download_button("Reservekopie downloaden", json.dumps(st.session_state.saved_rows, ensure_ascii=False, indent=2).encode("utf-8"),
                            "tripreport-bewaarde-trips.json", "application/json")
         with st.form("import_saved_trips"):
             backup = st.file_uploader("Reservekopie importeren", type="json")
@@ -196,10 +209,19 @@ if st.session_state.show_saved:
         if import_now and backup is not None:
             try:
                 imported = validate_import(backup.getvalue().decode("utf-8"))
-                st.session_state.storage_action = {"op": "import", "nonce": str(uuid4()), "imported": imported}
+                merged = merge_records(st.session_state.saved_rows, imported)
+                st.session_state.storage_action = {"op": "import", "nonce": str(uuid4()), "imported": merged}
                 st.rerun()
-            except (ValueError, UnicodeError, json.JSONDecodeError) as exc:
+            except (ValueError, TypeError, KeyError, UnicodeError) as exc:
                 st.error(f"Importeren is mislukt: {exc}")
+    st.stop()
+
+if st.button("← Mijn trips"):
+    st.session_state.page = "home"
+    st.session_state.pop("restored_form_token", None)
+    st.query_params.pop("report", None)
+    st.rerun()
+st.markdown('<div class="intro"><b>Je afgeronde reis in soorten.</b> Kies je iNaturalist-gebruikersnaam en de begin- en einddatum met tijd. Het reisgebied volgt automatisch uit de locaties van je waarnemingen. De foto’s komen uit jouw openbare waarnemingen.</div>', unsafe_allow_html=True)
 
 if restore_token:
     restored_job = report_jobs().snapshot(restore_token)
@@ -268,7 +290,7 @@ if go:
         st.error("De einddatum en -tijd moeten op of na het begin liggen.")
     else:
         token = report_jobs().start((username, start.isoformat(), end.isoformat(),
-                                     start_clock.strftime("%H:%M"), end_clock.strftime("%H:%M"), extended_checks, st.session_state.trip_name.strip()))
+                                     start_clock.strftime("%H:%M"), end_clock.strftime("%H:%M"), extended_checks, st.session_state.trip_name.strip()), fresh=True)
         st.session_state.report_job = token
         st.query_params["report"] = token
         st.session_state.loaded_report_job = None
@@ -309,8 +331,7 @@ def follow_report_job(token):
     result = job["result"]
     previous = st.session_state.saved_search
     meta = result["meta"]
-    if previous and any(meta.get(k) != previous.get(k) for k in
-                        ("username", "start", "end", "start_time", "end_time", "geometry")):
+    if previous and not same_trip(meta, previous):
         st.session_state.saved_trip_id = None
         st.session_state.saved_search = None
     st.session_state.trip = result["frame"]
@@ -468,14 +489,23 @@ if frame is not None and meta:
     st.caption("Gebied: " + (" of ".join(active_names) if active_names else "wereldwijd (geen gebiedsfilter)"))
     summary_slot = st.empty()
     with st.container(border=True):
+        st.caption("Berekend op: " + calculation_label(meta.get("calculated_at")))
         st.caption("Tripnaam: " + (st.session_state.trip_name or meta.get('trip_name') or 'Nog geen naam'))
-        if st.button("💾 Trip bewaren", disabled=not st.session_state.trip_name.strip()):
+        if st.button("💾 Versie bewaren", disabled=not st.session_state.trip_name.strip()):
             try:
                 snapshot = summary_snapshot(frame, meta, st.session_state.novelty, summary_counts)
                 if snapshot["unresolved"]:
                     st.warning("Wacht tot de stercontrole klaar is voordat je deze trip bewaart.")
                 else:
-                    record = make_record(st.session_state.trip_name, meta, snapshot, st.session_state.saved_trip_id)
+                    existing = next((row for row in st.session_state.saved_rows
+                                     if row["id"] == st.session_state.saved_trip_id), None)
+                    # Recover the trip link after returning via a report URL or herstartbestand.
+                    if existing is None:
+                        existing = next((row for row in st.session_state.saved_rows
+                                         if row["name"] == st.session_state.trip_name.strip()
+                                         and same_trip(meta, row["search"])), None)
+                    record = make_record(st.session_state.trip_name, meta, snapshot,
+                                         st.session_state.saved_trip_id, existing=existing)
                     st.session_state.saved_trip_id = record["id"]
                     st.session_state.saved_search = meta.copy()
                     st.session_state.storage_action = {"op": "save", "nonce": str(uuid4()), "record": record}

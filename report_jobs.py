@@ -193,15 +193,15 @@ class ReportJobs:
             result['meta'].setdefault('calculated_at',datetime.fromtimestamp(path.stat().st_mtime,timezone.utc).isoformat())
         return result
 
-    def start(self, search):
+    def start(self, search, fresh=False, resume_token=None):
         search = tuple(search)
         key = self.key(search)
         with self.lock:
             for token,job in self.jobs.items():
                 if job['key'] == key and job['state'] == 'running':
                     return token
-            saved = self._load(self.directory/(key+'.checkpoint'))
-            if saved is None and len(search) >= 6:
+            saved = self._saved_token(resume_token) if resume_token else (None if fresh else self._load(self.directory/(key+'.checkpoint')))
+            if saved is None and not fresh and not resume_token and len(search) >= 6:
                 # A changed map checkbox reuses the same trip history and star checks.
                 other = (*search[:5], not search[5], *search[6:])
                 previous = self._load(self.directory/(self.key(other)+'.checkpoint'))
@@ -217,6 +217,7 @@ class ReportJobs:
                 return token
             saved = saved or {'token':token, 'search':search, 'state':{}, 'message':'Reisgegevens ophalen…'}
             self._write(self.directory/(key+'.checkpoint'), saved)
+            self._write(self.directory/(token+'.checkpoint'), saved)
             self.jobs[token] = {'state':'running', 'message':'Hervatten: '+saved['message'] if saved['state'] else saved['message'],
                                 'started':time.time(), 'key':key}
             self.pool.submit(self._run, token, saved)
@@ -232,6 +233,7 @@ class ReportJobs:
                 saved['message'] = self.jobs[token]['message']
             saved['state'] = state
             self._write(self.directory/(key+'.checkpoint'), saved)
+            self._write(self.directory/(token+'.checkpoint'), saved)
         try:
             if self.builder is build_report:
                 result = self.builder(saved['search'], progress, saved['state'], save)
@@ -274,7 +276,7 @@ class ReportJobs:
         saved = self._saved_token(token)
         if not saved:
             raise ValueError('Geen tussentijdse opslag gevonden. Laad een herstartbestand of maak de trip opnieuw.')
-        return self.start(saved['search'])
+        return self.start(saved['search'], resume_token=token)
 
     def settings(self, token):
         """Recover form values independently of Streamlit Session State."""

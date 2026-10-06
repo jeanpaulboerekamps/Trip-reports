@@ -1,16 +1,29 @@
-# Tripreport Verkenner - versie 14
+# Tripreport Verkenner - versie 17
 
 Een Streamlit-app voor openbare iNaturalist-waarnemingen tijdens een reis.
 
+## Nieuw in versie 17
+
+- Het beginscherm is **Mijn trips**, standaard voor `jeanpaulboerekamps`. De gebruikersnaam is aanpasbaar; het overzicht toont alleen de lokaal bewaarde trips van die gebruiker.
+- Eerst verschijnt een kaart met een marker per trip, daarna één compacte tabel met de totalen van de meest recente berekening. Klik op een marker voor naam, periode en totalen. Trips zonder openbaar reisgebied blijven in de tabel staan, met een melding onder de kaart.
+- Per trip blijven meerdere versies bewaard, met de datum en tijd waarop de berekening is afgerond. Op het beginscherm kun je een trip kiezen en de totalen van alle versies vergelijken. Tijden worden weergegeven in Europe/Amsterdam.
+- **Nieuwe trip** opent het bestaande reisformulier. **Mijn trips** brengt je terug naar het overzicht.
+- Selecteer een bestaande trip en klik **Nieuwe versie berekenen** om de instellingen te laden. Klik vervolgens **Tripreport maken**. Dit haalt de gegevens opnieuw op, zodat latere identificaties worden meegenomen. Klik na voltooiing op **Versie bewaren**. De eerdere versies blijven behouden. Dezelfde berekening nogmaals bewaren maakt geen dubbele versie en wijzigt geen oudere snapshot.
+- Een automatisch veranderd reisgebied maakt geen nieuwe trip: de gebruiker en begin-/einddatum met tijden bepalen of een berekening bij de geladen trip hoort. Gewijzigde gebruiker of periode wordt als een nieuwe trip bewaard.
+- Oude opgeslagen trips en JSON-reservekopieën worden omgezet naar één bestaande versie. Als de oorspronkelijke berekendatum ontbreekt, staat er **Onbekend (oudere trip)**; er wordt geen datum verzonnen.
+- Export bevat alle trips en versies van alle gebruikers. Import voegt versies samen en verwijdert geen nieuwere versies die al in de browser staan.
+
+Versies bewaren reisinstellingen, het openbare reisgebied en samenvattingsaantallen. De volledige soortenkaarten/PDF van iedere oude versie worden niet in browseropslag bewaard; download een PDF of herstartbestand voor een volledig rapport. De trips komen uit de browseropslag, niet uit een automatisch uit iNaturalist afgeleide reislijst. Gebruik reservekopieën voor een andere browser of een ander apparaat.
+
 ## Gebruik
 
-1. Geef eerst een naam aan de trip (verplicht, maximaal 120 tekens). Deze naam wordt bij de berekening en het herstartpunt bewaard. Vul daarna je exacte iNaturalist-gebruikersnaam in. Hoofdletters en spaties worden genegeerd; typefouten worden gemeld.
-2. Kies datums (vanaf 1965) en tijden. Standaard 00:00 tot 23:59; de eindminuut telt volledig mee. De tijd is lokaal per waarneming.
-3. Kies of **nieuw in gebied en nieuw op iNaturalist** ook in de kaartcirkels moeten staan. Deze keuze geldt alleen voor de kaart. Sterren en totalen worden altijd volledig gecontroleerd.
-4. Klik **Tripreport maken**. De voortgang vermeldt de actieve stap.
-5. De app begint met de heatmap en 25 km-cirkels, gevolgd door samenvatting en soortenkaarten met eigen foto's. De PDF begint met de bewaarde tripnaam, direct gevolgd door de samenvatting en dan de kaart op de eerste pagina. De toelichting onder de kaart is verwijderd. Daarna volgen fotopagina's met vier kolommen en vier rijen (16 soorten per volle pagina), in de gekozen soortenvolgorde. Er is geen CSV-export.
-
-Bovenaan de app staat **Versie 14**, zodat je kunt controleren of de nieuwe bestanden zijn gedeployed. Bestaande trips uit eerdere versies blijven bruikbaar. De PDF gebruikt de ingevulde tripnaam of vindt de passende bewaarde naam terug. De download heet exact de tripnaam met .pdf; tekens die niet in een bestandsnaam mogen worden door een underscore vervangen. Oude herstartbestanden zonder naam blijven laadbaar.
+1. Begin bij **Mijn trips**. Kies indien nodig een andere iNaturalist-gebruikersnaam en klik **Nieuwe trip**.
+2. Geef de trip een naam (verplicht, maximaal 120 tekens). Vul de exacte openbare iNaturalist-gebruikersnaam in.
+3. Kies datums (vanaf 1965) en tijden. Standaard 00:00 tot 23:59; de eindminuut telt volledig mee. De tijd is lokaal per waarneming.
+4. Kies of **nieuw in gebied en nieuw op iNaturalist** ook in de kaartcirkels moeten staan. Deze keuze geldt alleen voor de kaart. Sterren en totalen worden altijd volledig gecontroleerd.
+5. Klik **Tripreport maken**. De voortgang vermeldt de actieve stap. Elke expliciet aangevraagde berekening begint met actuele gegevens; een al lopende identieke taak wordt hergebruikt om dubbel werk te voorkomen. Hervatten via een rapport-URL of herstartbestand blijft beschikbaar.
+6. Het rapport begint met de heatmap en 25 km-cirkels, gevolgd door samenvatting en soortenkaarten met eigen foto's. Klik na voltooiing op **Versie bewaren** en vervolgens **Mijn trips** om de nieuwste totalen in het overzicht te zien.
+7. Maak eventueel een PDF en download een herstartbestand. De PDF begint met tripnaam, samenvatting en kaart, gevolgd door de soortenfoto's. Er is geen CSV-export.
 
 ## Waarnemingen zonder soortidentificatie
 
@@ -32,7 +45,7 @@ Gele, oranje en rode sterren en de persoonlijke/gebieds-/wereldtellingen in de s
 
 Het ophalen en controleren draait op de server, los van de browserverbinding. Bewaar de URL met `?report=...` om terug te keren naar dezelfde taak.
 
-De browser bewaart nu ook automatisch het nummer van je laatste berekening. Als je terugkomt via de gewone app-URL, vindt de app deze taak terug. Boven het reisformulier staat **Je vorige berekening** met de voortgang en **Verdergaan met vorige berekening**. Bij een lopende taak opent dit dezelfde taak; bij een onderbroken servertaak hervat het het opgeslagen punt. De gebruikersnaam, datums, tijden en kaartkeuze worden uit de taak teruggezet. Dit werkt in dezelfde browser op hetzelfde apparaat als lokale browseropslag beschikbaar is. Zonder servergegevens wordt duidelijk aangegeven dat een herstartbestand nodig is.
+De browser bewaart automatisch het nummer van je laatste berekening. Via de gewone app-URL kom je eerst op **Mijn trips**. Daar staat **Verdergaan met vorige berekening** als een vorige taak bekend is. Bij een lopende taak opent dit dezelfde taak; bij een onderbroken servertaak kun je het opgeslagen punt hervatten. De gebruikersnaam, datums, tijden en kaartkeuze worden teruggezet. Een URL met `?report=...` opent het rapport direct. Zonder servergegevens wordt aangegeven dat een herstartbestand nodig is.
 
 De app slaat een herstartpunt op na accountcontrole, volledig ophalen van de waarnemingen, opbouwen van de soortenlijst, iedere persoonlijke groepscontrole, cirkelberekening en ophalen van totalen. Volledige stercontroles worden per groep van 40 soorten opgeslagen. Een onafgeronde stap wordt opnieuw uitgevoerd, afgeronde stappen en groepen worden hergebruikt.
 
@@ -55,10 +68,12 @@ De interactieve kaart gebruikt OpenStreetMap. De PDF haalt een beperkte hoeveelh
 
 Tripinstellingen en samenvattingen worden lokaal in je browser bewaard; ze zijn apart van de server-herstartpunten. Ze kunnen als JSON worden geëxporteerd en geïmporteerd. Bewaarde trips uit oudere versies gebruiken standaardtijden 00:00 en 23:59.
 
-Zet alle bronbestanden, inclusief `report_jobs.py`, `concentrations.py`, `trip_map.py`, `report_pdf.py`, de component en requirements, in de Streamlit-repository. Startbestand: `app.py`.
+Zet alle bronbestanden, inclusief `report_jobs.py`, `concentrations.py`, `trip_map.py`, `report_pdf.py`, `trip_store.py`, `trip_overview.py`, de component en requirements, in de Streamlit-repository. Startbestand: `app.py`.
 
 Installatie: `pip install -r requirements.txt`.
-Tests: installeer ook `tests/requirements.txt` en voer `python -m unittest discover -s tests -v` uit.
+Tests: voer na installatie `python -m unittest discover -s tests -v` uit. Dit controleert versieopslag, migratie, import, verse berekeningen en navigatie met Streamlit AppTest. De browsercomponent kan apart worden getest met `node tests/test_browser_store.js`.
+
+Bijwerken: vervang alle bronbestanden uit dit ZIP-bestand in je bestaande Streamlit-project en herstart de app. De browseropslagsleutel blijft gelijk, zodat bewaarde trips op dezelfde app-URL behouden blijven. Maak voor de update een JSON-reservekopie.
 
 API-verzoeken behouden de bestaande globale wachttijd van circa één seconde tussen starts en retries bij tijdelijke fouten. Een mislukte persoonlijke groepscontrole wordt onzeker gemarkeerd en start niet honderden losse zoekacties.
 
