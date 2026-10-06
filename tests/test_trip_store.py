@@ -78,6 +78,7 @@ class StoreTests(unittest.TestCase):
         first = make_record("<Reis>", search(), summary())
         missing = deepcopy(first)
         missing["versions"][0]["search"]["geometry"] = ""
+        missing["versions"][0]["search"].pop("map_location", None)
         invalid = deepcopy(missing)
         invalid["versions"][0]["search"]["geometry"] = "invalid JSON"
         world, omitted = overview_map([first, missing, invalid])
