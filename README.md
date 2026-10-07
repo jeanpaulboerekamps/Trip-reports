@@ -1,6 +1,14 @@
-# Tripreport Verkenner - versie 19
+# Tripreport Verkenner - versie 20
 
 Een Streamlit-app voor openbare iNaturalist-waarnemingen tijdens een reis.
+
+## Nieuw in versie 20
+
+- De kaart groepeert trips niet meer in clusters. Iedere trip heeft een eigen cirkel op de opgeslagen waarnemingslocatie. Tik op cirkels die op het scherm overlappen om ze tijdelijk uiteen te klappen; verbindingslijnen tonen de oorspronkelijke locaties. Tik daarna op een afzonderlijke cirkel voor de gegevens. Verschuiven of zoomen herstelt de oorspronkelijke posities.
+- De kaart is hoger en heeft schaalvermelding. Via **Kaartgebied** kies je **Alle trips**, **Europa** of **Midden-Oosten en Indische Oceaan**, zodat bijvoorbeeld Oman en de Malediven afzonderlijk te bekijken zijn. Je kunt verder inzoomen en verschuiven. De triplocaties en de berekening van het zwaartepunt zijn ongewijzigd.
+- **Berekend op** en **Versies** staan achteraan in de triptabel. De andere kolomkoppen hebben meerdere regels en smallere telkolommen. Berekendatum en tijd staan ook in de cellen op twee regels. De tripnaam blijft vaststaan bij horizontaal scrollen.
+- De compacte tabel ondersteunt rijselectie en sorteren door op iedere kolomkop te klikken. Nogmaals klikken keert de volgorde om; de pijl toont de sorteerrichting. De sorteerkeuzes boven de tabel blijven eveneens beschikbaar. Selectie is gekoppeld aan het trip-ID en blijft daardoor bij dezelfde trip na sorteren. Klik op de geselecteerde rij om de selectie op te heffen.
+- De nieuwe tabelcomponent draait lokaal als onderdeel van Streamlit en laadt geen externe scripts. Neem **trip_table_ui.py** en de volledige map **trip_table_component** mee bij het bijwerken van de applicatie.
 
 ## Nieuw in versie 19
 
@@ -84,10 +92,10 @@ De interactieve kaart gebruikt OpenStreetMap. De PDF haalt een beperkte hoeveelh
 
 Tripinstellingen en samenvattingen worden lokaal in je browser bewaard; ze zijn apart van de server-herstartpunten. Ze kunnen als JSON worden geëxporteerd en geïmporteerd. Bewaarde trips uit oudere versies gebruiken standaardtijden 00:00 en 23:59.
 
-Zet alle bronbestanden, inclusief `report_jobs.py`, `concentrations.py`, `trip_map.py`, `report_pdf.py`, `trip_store.py`, `trip_overview.py`, `trip_locations.py`, de component en requirements, in de Streamlit-repository. Startbestand: `app.py`.
+Zet alle bronbestanden, inclusief `report_jobs.py`, `concentrations.py`, `trip_map.py`, `report_pdf.py`, `trip_store.py`, `trip_overview.py`, `trip_locations.py`, `trip_table_ui.py`, beide componentmappen (`local_store_component` en `trip_table_component`) en requirements, in de Streamlit-repository. Startbestand: `app.py`.
 
 Installatie: `pip install -r requirements.txt`.
-Tests: voer na installatie `python -m unittest discover -s tests -v` uit. Dit controleert versieopslag, migratie, import, verse berekeningen en navigatie met Streamlit AppTest. Ook tabelselectie, verwijderen, standaardgebruikersnaam en locatieherstel worden gecontroleerd. De browsercomponent kan apart worden getest met `node tests/test_browser_store.js`.
+Tests: voer na installatie `python -m unittest discover -s tests -v` uit. Dit controleert versieopslag, migratie, import, verse berekeningen en navigatie met Streamlit AppTest. Ook tabelselectie, verwijderen, standaardgebruikersnaam en locatieherstel worden gecontroleerd. De browseropslag kan apart worden getest met `node tests/test_browser_store.js`; de kaartinteractie met `node tests/test_map_markers.js`. Voor de compacte tabel: installeer optioneel `jsdom` met npm en voer `node tests/test_compact_table.js` uit. Deze controleert echte DOM-elementen, kopregels, sortering en selectie op trip-ID.
 
 Bijwerken: vervang alle bronbestanden uit dit ZIP-bestand in je bestaande Streamlit-project en herstart de app. De browseropslagsleutel blijft gelijk, zodat bewaarde trips op dezelfde app-URL behouden blijven. Maak voor de update een JSON-reservekopie.
 

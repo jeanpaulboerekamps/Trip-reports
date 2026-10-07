@@ -30,6 +30,7 @@ _BROWSER_COMPONENT_HTML = '<!doctype html>\n<html lang="nl"><head><meta charset=
 from trip_store import make_record, summary_snapshot, matches_search, validate_import, normalize_record, merge_records, same_trip, rename_record
 from trip_overview import overview_map, trip_table, version_table, calculation_label, sorted_trips
 from trip_locations import stored_trip_location, recover_trip_location, has_density_location, DENSITY_METHOD
+from trip_table_ui import render_trip_table
 
 st.set_page_config(page_title="Tripreport Verkenner", page_icon="🧭", layout="wide")
 st.markdown("""<style>
@@ -174,7 +175,7 @@ def open_trip(row):
 
 
 st.title("🧭 Tripreport Verkenner")
-st.caption("Versie 19 · Zwaartepunt op de kaart, tripnaam wijzigen en sorteren")
+st.caption("Versie 20 · Afzonderlijke kaartmarkers en compact tripoverzicht")
 if st.session_state.storage_notice:
     st.info(st.session_state.storage_notice)
     st.session_state.storage_notice = ""
@@ -223,9 +224,11 @@ if st.session_state.page == "home":
     if recovered and action.get("op") == "list":
         st.session_state.storage_action = {"op": "locations", "nonce": str(uuid4()), "locations": recovered}
         st.rerun()
-    world, missing = overview_map(user_rows)
+    map_view = st.selectbox("Kaartgebied", ["Alle trips", "Europa", "Midden-Oosten en Indische Oceaan"], key="overview_map_view")
+    world, missing = overview_map(user_rows, view=map_view)
     map_signature = hashlib.sha256(json.dumps([(row["id"], row["name"], stored_trip_location(row)) for row in user_rows]).encode()).hexdigest()[:16]
-    st_folium(world, height=430, use_container_width=True, returned_objects=[], key="trips_overview_map_" + map_signature)
+    st_folium(world, height=560, use_container_width=True, returned_objects=[], key="trips_overview_map_v20_" + map_signature + "_" + map_view)
+    st.caption("Iedere cirkel is één trip. Tik op overlappende cirkels om ze uit elkaar te klappen; tik daarna op een cirkel voor de tripgegevens.")
     if location_errors and not missing:
         st.warning("De drukste locatie kon nog niet worden bepaald voor: " + ", ".join(location_errors) + ". De eerdere kaartlocatie blijft zichtbaar.")
         if st.button("Kaartlocaties opnieuw ophalen"):
@@ -248,16 +251,21 @@ if st.session_state.page == "home":
         sort_by = sort_col.selectbox("Sorteren op", columns, index=columns.index("Van"), key="trip_sort_column")
         direction = direction_col.radio("Volgorde", ["Aflopend", "Oplopend"], horizontal=True, key="trip_sort_direction")
         rows = sorted_trips(rows, sort_by, descending=direction == "Aflopend")
-        table_key = "trip_selection_" + hashlib.sha256(json.dumps([row["id"] for row in rows]).encode()).hexdigest()[:16]
-        selection = st.dataframe(pd.DataFrame(trip_table(rows)), hide_index=True, use_container_width=True,
-                                 key=table_key, on_select="rerun", selection_mode="single-row",
-                                 column_config={"Trip": st.column_config.TextColumn("Trip", width="large", pinned=True),
-                                                "Van": st.column_config.DateColumn(format="DD-MM-YYYY"),
-                                                "Tot": st.column_config.DateColumn(format="DD-MM-YYYY"),
-                                                "Berekend op": st.column_config.DatetimeColumn(format="DD-MM-YYYY HH:mm:ss")})
-        chosen = selection.selection.rows
-        if chosen and 0 <= chosen[0] < len(rows):
-            row = rows[chosen[0]]
+        context = hashlib.sha256(json.dumps([selected_user, needle, sorted(row["id"] for row in rows)]).encode()).hexdigest()[:20]
+        selected_id = st.session_state.get("selected_overview_trip_id")
+        if selected_id not in {row["id"] for row in rows}:
+            selected_id = None
+            st.session_state.selected_overview_trip_id = None
+        event = render_trip_table(rows, selected_id=selected_id, context=context,
+                                  sort_by=sort_by, descending=direction == "Aflopend")
+        if (isinstance(event, dict) and event.get("context") == context
+                and event.get("nonce") != st.session_state.get("trip_table_last_event")):
+            st.session_state.trip_table_last_event = event.get("nonce")
+            clicked_id = event.get("selected_id")
+            selected_id = clicked_id if clicked_id in {row["id"] for row in rows} else None
+            st.session_state.selected_overview_trip_id = selected_id
+        row = next((row for row in rows if row["id"] == selected_id), None)
+        if row:
             st.subheader(row["name"])
             with st.form("rename_trip_" + row["id"]):
                 new_name = st.text_input("Tripnaam wijzigen", value=row["name"], max_chars=120)
