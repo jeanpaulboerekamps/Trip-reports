@@ -251,17 +251,17 @@ if st.session_state.page == "home":
         table_key = "trip_selection_" + hashlib.sha256(json.dumps([row["id"] for row in rows]).encode()).hexdigest()[:16]
         selection = st.dataframe(pd.DataFrame(trip_table(rows)), hide_index=True, use_container_width=True,
                                  key=table_key, on_select="rerun", selection_mode="single-row",
-                                 column_config={"Trip": st.column_config.TextColumn("Trip", width=300, pinned=True),
-                                                "Van": st.column_config.DateColumn("Van", format="DD-MM-YYYY", width=105),
-                                                "Tot": st.column_config.DateColumn("Tot", format="DD-MM-YYYY", width=105),
-                                                "Waarnemingen": st.column_config.NumberColumn("Waarne\nmingen", width=115),
-                                                "Soorten": st.column_config.NumberColumn("Soorten", width=90),
-                                                "Niet op soort": st.column_config.NumberColumn("Niet op\nsoort", width=110),
-                                                "Nieuw voor mij": st.column_config.NumberColumn("Nieuw voor\nmij", width=110),
-                                                "Nieuw in gebied": st.column_config.NumberColumn("Nieuw in\ngebied", width=115),
-                                                "Nieuw op iNat": st.column_config.NumberColumn("Nieuw op\niNat", width=105),
-                                                "Berekend op": st.column_config.DatetimeColumn("Berekend\nop", format="DD-MM-YYYY HH:mm:ss", width=175),
-                                                "Versies": st.column_config.NumberColumn("Versies", width=85)})
+                                 column_config={"Trip": st.column_config.TextColumn("Trip", width=520, pinned=True),
+                                                "Van": st.column_config.DateColumn("Van", format="DD-MM-YYYY", width=110),
+                                                "Tot": st.column_config.DateColumn("Tot", format="DD-MM-YYYY", width=110),
+                                                "Waarnemingen": st.column_config.NumberColumn("Waarnemingen", width=135),
+                                                "Soorten": st.column_config.NumberColumn("Soorten", width=100),
+                                                "Niet op soort": st.column_config.NumberColumn("Niet op soort", width=135),
+                                                "Nieuw voor mij": st.column_config.NumberColumn("Nieuw voor mij", width=140),
+                                                "Nieuw in gebied": st.column_config.NumberColumn("Nieuw in gebied", width=145),
+                                                "Nieuw op iNat": st.column_config.NumberColumn("Nieuw op iNat", width=130),
+                                                "Berekend op": st.column_config.DatetimeColumn("Berekend op", format="DD-MM-YYYY HH:mm:ss", width=180),
+                                                "Versies": st.column_config.NumberColumn("Versies", width=90)})
         chosen = selection.selection.rows
         if chosen and 0 <= chosen[0] < len(rows):
             row = rows[chosen[0]]
