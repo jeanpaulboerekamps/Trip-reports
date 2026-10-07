@@ -113,13 +113,44 @@ class AppTests(unittest.TestCase):
         at.session_state.saved_rows = [row]
         response = {'total_results': 1, 'results': [{'id': 1, 'observed_on': '2025-01-05',
                     'geojson': {'coordinates': [120.3, -1.4]}}]}
-        with patch('trip_locations.get', return_value=response):
+        with patch('trip_locations.trip_observations', return_value=response['results']):
             at.run()
         self.assertFalse(at.exception)
         self.assertEqual(at.session_state.storage_action['op'], 'locations')
         self.assertAlmostEqual(at.session_state.saved_rows[0]['map_location'][1], 120.3)
         self.assertEqual(at.dataframe[0].value.iloc[0]['Soorten'], 4)
         self.assertEqual(at.dataframe[0].value.iloc[0]['Versies'], 1)
+
+    def test_selected_trip_can_be_renamed_without_recalculation(self):
+        at = self.start()
+        row = make_record('Reis', search(), summary())
+        at.session_state.saved_rows = [row]
+        real_dataframe = st.dataframe
+        def selected_dataframe(*args, **kwargs):
+            value = real_dataframe(*args, **kwargs)
+            if kwargs.get('on_select'):
+                return SimpleNamespace(selection=SimpleNamespace(rows=[0]))
+            return value
+        with patch.object(st, 'dataframe', side_effect=selected_dataframe):
+            at.run()
+            name_input = next(w for w in at.text_input if w.label == 'Tripnaam wijzigen')
+            name_input.set_value('Nieuwe naam')
+            self.button(at, 'Naam opslaan').click().run()
+        self.assertFalse(at.exception)
+        self.assertEqual(at.session_state.storage_action['op'], 'rename')
+        self.assertEqual(at.session_state.storage_action['trip_id'], row['id'])
+        self.assertEqual(at.session_state.storage_action['name'], 'Nieuwe naam')
+
+    def test_sort_controls_change_row_order(self):
+        at = self.start()
+        low = make_record('Z-trip', search(), summary(2))
+        high = make_record('A-trip', search(), summary(7))
+        at.session_state.saved_rows = [low, high]
+        at.run()
+        at.selectbox[0].set_value('Soorten').run()
+        self.assertEqual(list(at.dataframe[0].value['Soorten']), [7, 2])
+        at.radio[0].set_value('Oplopend').run()
+        self.assertEqual(list(at.dataframe[0].value['Soorten']), [2, 7])
 
 
 if __name__ == '__main__':

@@ -1,7 +1,8 @@
 import json
 import unittest
 from copy import deepcopy
-from trip_store import make_record, normalize_record, validate_import, merge_records, same_trip
+from trip_store import make_record, normalize_record, validate_import, merge_records, same_trip, rename_record
+from trip_overview import sorted_trips
 from trip_overview import overview_map, trip_table
 
 
@@ -86,6 +87,38 @@ class StoreTests(unittest.TestCase):
         markup = world.get_root().render()
         self.assertIn("&lt;Reis&gt;", markup)
         self.assertIn("10 waarnemingen", markup)
+
+    def test_rename_preserves_trip_identity_and_every_version(self):
+        first = make_record('Reis', search(), summary())
+        latest = make_record('Reis', search('2026-10-02T10:00:00+00:00'), summary(6), existing=first)
+        renamed = rename_record(latest, '  Nieuwe naam  ')
+        self.assertEqual(renamed['name'], 'Nieuwe naam')
+        self.assertEqual(renamed['versions'], latest['versions'])
+        self.assertEqual(renamed['id'], latest['id'])
+        self.assertEqual(latest['name'], 'Reis')
+        for value in (' ', 'a'*121):
+            with self.assertRaises(ValueError):
+                rename_record(latest, value)
+
+    def test_sort_numeric_and_missing_values(self):
+        low = make_record('z', search(), summary(2))
+        high = make_record('A', search(), summary(7))
+        unknown = deepcopy(low)
+        unknown['id'] = 'unknown'
+        unknown['versions'][0]['summary']['area'] = None
+        self.assertEqual([r['name'] for r in sorted_trips([low, high], 'Trip', False)], ['A', 'z'])
+        self.assertEqual([r['name'] for r in sorted_trips([low, high], 'Soorten', True)], ['A', 'z'])
+        for descending in (True, False):
+            self.assertEqual(sorted_trips([unknown, low], 'Nieuw in gebied', descending)[-1]['id'], 'unknown')
+
+    def test_sort_calculation_date_is_chronological(self):
+        earlier = make_record('Earlier', search('2026-02-28T10:00:00+00:00'), summary())
+        later = make_record('Later', search('2026-03-01T10:00:00+00:00'), summary())
+        undated = deepcopy(earlier)
+        undated['versions'][0]['calculated_at'] = None
+        undated['name'] = 'Undated'
+        self.assertEqual([r['name'] for r in sorted_trips([earlier, undated, later], 'Berekend op', True)],
+                         ['Later', 'Earlier', 'Undated'])
 
 
 if __name__ == "__main__":
