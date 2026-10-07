@@ -27,6 +27,10 @@ EARLIEST_TRIP_DATE = date(1965, 1, 1)
 # was not uploaded by the hosting interface.
 _BROWSER_COMPONENT_HTML = '<!doctype html>\n<html lang="nl"><head><meta charset="utf-8"></head><body style="margin:0">\n<script>\nconst STORAGE_KEY = "tripreport_verkenner_saved_trips_v1";\nconst REPORT_KEY = "tripreport_last_report_v1";\nlet lastNonce = null;\nlet lastActive = null;\nfunction send(type, extra = {}) {\n  window.parent.postMessage({isStreamlitMessage:true, type, ...extra}, "*");\n}\nfunction read() {\n  const value = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");\n  if (!Array.isArray(value)) throw new Error("De bewaarde trips zijn beschadigd.");\n  return value;\n}\nfunction mergeRecord(old, incoming) {\n  if (!old) return incoming;\n  const snapshots = row => row.versions && row.versions.length ? row.versions : [{\n    id: "legacy-" + row.id, calculated_at: row.search.calculated_at || null,\n    search: row.search, summary: row.summary\n  }];\n  const versions = new Map(snapshots(old).map(v => [v.id, v]));\n  snapshots(incoming).forEach(v => { if (!versions.has(v.id)) versions.set(v.id, v); });\n  const ordered = [...versions.values()].sort((a, b) =>\n    (a.calculated_at ? Date.parse(a.calculated_at) : -Infinity) -\n    (b.calculated_at ? Date.parse(b.calculated_at) : -Infinity));\n  const latest = ordered[ordered.length - 1];\n  return {...old, ...incoming, versions: ordered, search: latest.search, summary: latest.summary};\n}\nfunction publish(nonce, records, error = "") {\n  let last_report = localStorage.getItem(REPORT_KEY) || "";\n  if (!/^[a-f0-9]{32}$/.test(last_report)) last_report = "";\n  send("streamlit:setComponentValue", {dataType:"json", value:{nonce, records, error, last_report}});\n}\nwindow.addEventListener("message", event => {\n  if (event.data.type !== "streamlit:render") return;\n  const {op = "list", nonce = "initial", record, imported, active_report, trip_id, locations, name} = event.data.args || {};\n  const changed = active_report && active_report !== lastActive;\n  if (nonce === lastNonce && !changed) return;\n  lastNonce = nonce;\n  try {\n    if (active_report && /^[a-f0-9]{32}$/.test(active_report)) {\n      localStorage.setItem(REPORT_KEY, active_report);\n      lastActive = active_report;\n    }\n    let records = read();\n    if (op === "save") {\n      const pos = records.findIndex(x => x.id === record.id);\n      if (pos < 0) records.push(record); else records[pos] = mergeRecord(records[pos], record);\n      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));\n    } else if (op === "rename") {\n      if (typeof name !== "string" || !name.trim() || name.trim().length > 120) {\n        throw new Error("Geef de trip een naam van maximaal 120 tekens.");\n      }\n      const row = records.find(x => x.id === trip_id);\n      if (!row) throw new Error("Deze trip bestaat niet meer.");\n      row.name = name.trim();\n      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));\n    } else if (op === "delete") {\n      records = records.filter(x => x.id !== trip_id);\n      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));\n    } else if (op === "locations") {\n      (locations || []).forEach(item => {\n        const row = records.find(x => x.id === item.id);\n        if (row && Array.isArray(item.map_location) && item.map_location.length === 2 &&\n            item.map_location.every(Number.isFinite) && Math.abs(item.map_location[0]) <= 90 && Math.abs(item.map_location[1]) <= 180) {\n          row.map_location = item.map_location;\n          if (item.map_location_method === "density-25km-v1") row.map_location_method = item.map_location_method;\n        }\n      });\n      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));\n    } else if (op === "import") {\n      if (!Array.isArray(imported) || imported.length > 1000 ||\n          !imported.every(x => x && typeof x.id === "string" && x.search && x.summary)) {\n        throw new Error("Dit bestand bevat geen geldige trips.");\n      }\n      const byId = new Map(records.map(x => [x.id, x]));\n      imported.forEach(x => byId.set(x.id, mergeRecord(byId.get(x.id), x)));\n      records = [...byId.values()];\n      localStorage.setItem(STORAGE_KEY, JSON.stringify(records));\n    }\n    publish(nonce, records);\n  } catch (error) {\n    publish(nonce, [], String(error.message || error));\n  }\n});\nsend("streamlit:componentReady", {apiVersion:1});\nsend("streamlit:setFrameHeight", {height:0});\n</script>\n</body></html>\n'
 
+
+# Embedded responsive table: app.py alone is sufficient for deployment.
+_TRIP_TABLE_HTML = '<!doctype html>\n<html lang="nl"><head><meta charset="utf-8"><style>\n*{box-sizing:border-box}body{margin:0;color:var(--text,#31333f);background:var(--bg,#fff);font:14px/1.4 sans-serif}\n.wrap{max-height:560px;overflow-y:auto;border:1px solid #b8b8b850;border-radius:8px}\ntable{width:100%;table-layout:fixed;border-collapse:collapse}\nth,td{padding:8px 5px;border-bottom:1px solid #b8b8b840;border-right:1px solid #b8b8b830;vertical-align:top;white-space:normal;overflow-wrap:anywhere}\nth{position:sticky;top:0;background:var(--secondary,#f0f2f6);font-weight:600;text-align:left;hyphens:manual;z-index:1}\ntd.number{text-align:right;font-variant-numeric:tabular-nums}\ntr.selected{background:var(--secondary,#f0f2f6)}tbody tr{cursor:pointer}tbody tr:hover{background:var(--secondary,#f0f2f6)}\nbutton{font:inherit;color:inherit;background:none;border:0;padding:0;width:100%;text-align:left;cursor:pointer;overflow-wrap:anywhere;white-space:normal}\nbutton:focus-visible{outline:2px solid var(--primary,#ff4b4b);outline-offset:2px}\n@media(max-width:700px){body{font-size:12px}th,td{padding:7px 3px}}\n</style></head><body><div class="wrap"><table aria-label="Tripoverzicht"><colgroup></colgroup><thead></thead><tbody></tbody></table></div>\n<script>\nlet selected = null;\nfunction send(type, extra = {}) {window.parent.postMessage({isStreamlitMessage:true,type,...extra},"*");}\nfunction resize(){send("streamlit:setFrameHeight",{height:Math.ceil(document.querySelector(\'.wrap\').getBoundingClientRect().height)+2});}\nfunction mark(){document.querySelectorAll(\'tbody tr\').forEach(row=>{const active=row.dataset.id===selected;row.classList.toggle(\'selected\',active);row.querySelector(\'button\').setAttribute(\'aria-pressed\',String(active));});}\nwindow.addEventListener(\'message\',event=>{\n if(event.data.type!=="streamlit:render")return;\n const {rows=[],columns=[]}=event.data.args||{};\n const theme=event.data.theme||{};\n for(const [name,value] of Object.entries({text:theme.textColor,bg:theme.backgroundColor,secondary:theme.secondaryBackgroundColor,primary:theme.primaryColor}))if(value)document.body.style.setProperty(\'--\'+name,value);\n if(!rows.some(row=>row.id===selected))selected=null;\n const group=document.querySelector(\'colgroup\'),head=document.querySelector(\'thead\'),body=document.querySelector(\'tbody\');\n group.replaceChildren();head.replaceChildren();body.replaceChildren();\n const headings=document.createElement(\'tr\');\n columns.forEach((column,i)=>{const col=document.createElement(\'col\');col.style.width=[24,8,8,6.5,6.5,6.5,6.5,6.5,6.5,14,7][i]+\'%\';group.append(col);const th=document.createElement(\'th\');th.scope=\'col\';th.textContent=column.replace(\'Waarnemingen\',\'Waar\\u00adnemingen\').replace(\'Soorten\',\'Soor\\u00adten\').replace(\'Versies\',\'Ver\\u00adsies\');headings.append(th);});\n head.append(headings);\n rows.forEach(row=>{const tr=document.createElement(\'tr\');tr.dataset.id=row.id;\n  const choose=()=>{selected=selected===row.id?null:row.id;mark();send(\'streamlit:setComponentValue\',{dataType:\'json\',value:selected});};\n  row.values.forEach((value,i)=>{const td=document.createElement(\'td\');if(i>=3&&i!==9)td.className=\'number\';\n   if(i===0){const button=document.createElement(\'button\');button.type=\'button\';button.textContent=value;button.addEventListener(\'click\',event=>{event.stopPropagation();choose();});td.append(button);}else td.textContent=value;\n   tr.append(td);\n  });tr.addEventListener(\'click\',choose);body.append(tr);\n });mark();requestAnimationFrame(resize);\n});\nnew ResizeObserver(resize).observe(document.querySelector(\'.wrap\'));\nsend(\'streamlit:componentReady\',{apiVersion:1});\n</script></body></html>\n'
+
 from trip_store import make_record, summary_snapshot, matches_search, validate_import, normalize_record, merge_records, same_trip, rename_record
 from trip_overview import overview_map, trip_table, version_table, calculation_label, sorted_trips
 from trip_locations import stored_trip_location, recover_trip_location, has_density_location, DENSITY_METHOD
@@ -102,6 +106,28 @@ if isinstance(storage_event, dict):
     previous_report = storage_event.get('last_report')
     if isinstance(previous_report, str) and re.fullmatch(r'[a-f0-9]{32}', previous_report):
         st.session_state.previous_report_token = previous_report
+
+trip_table_dir = Path(tempfile.gettempdir()) / "tripreport-responsive-table-v24"
+trip_table_dir.mkdir(parents=True, exist_ok=True)
+(trip_table_dir / "index.html").write_text(_TRIP_TABLE_HTML, encoding="utf-8")
+responsive_trip_table = declare_component("trip_responsive_table", path=str(trip_table_dir))
+
+
+def overview_selection(rows, key):
+    """Use stable trip IDs so a selection cannot target a different sorted row."""
+    values = trip_table(rows)
+    display_rows = []
+    for row, values_row in zip(rows, values):
+        cells = []
+        for column, value in values_row.items():
+            if column in ("Van", "Tot"):
+                value = value.strftime("%d-%m-%Y")
+            elif column == "Berekend op":
+                value = value.strftime("%d-%m-%Y %H:%M:%S") if value else "Onbekend"
+            cells.append(str(value))
+        display_rows.append({"id": row["id"], "values": cells})
+    return responsive_trip_table(rows=display_rows, columns=list(values[0]), key=key, default=None)
+
 
 restore_token = st.session_state.get('report_job') or st.query_params.get('report')
 if st.session_state.page == 'report' and restore_token and st.session_state.get('restored_form_token') != restore_token:
@@ -249,22 +275,9 @@ if st.session_state.page == "home":
         direction = direction_col.radio("Volgorde", ["Aflopend", "Oplopend"], horizontal=True, key="trip_sort_direction")
         rows = sorted_trips(rows, sort_by, descending=direction == "Aflopend")
         table_key = "trip_selection_" + hashlib.sha256(json.dumps([row["id"] for row in rows]).encode()).hexdigest()[:16]
-        selection = st.dataframe(pd.DataFrame(trip_table(rows)), hide_index=True, use_container_width=True,
-                                 key=table_key, on_select="rerun", selection_mode="single-row",
-                                 column_config={"Trip": st.column_config.TextColumn("Trip", width=520, pinned=True),
-                                                "Van": st.column_config.DateColumn("Van", format="DD-MM-YYYY", width=110),
-                                                "Tot": st.column_config.DateColumn("Tot", format="DD-MM-YYYY", width=110),
-                                                "Waarnemingen": st.column_config.NumberColumn("Waarnemingen", width=135),
-                                                "Soorten": st.column_config.NumberColumn("Soorten", width=100),
-                                                "Niet op soort": st.column_config.NumberColumn("Niet op soort", width=135),
-                                                "Nieuw voor mij": st.column_config.NumberColumn("Nieuw voor mij", width=140),
-                                                "Nieuw in gebied": st.column_config.NumberColumn("Nieuw in gebied", width=145),
-                                                "Nieuw op iNat": st.column_config.NumberColumn("Nieuw op iNat", width=130),
-                                                "Berekend op": st.column_config.DatetimeColumn("Berekend op", format="DD-MM-YYYY HH:mm:ss", width=180),
-                                                "Versies": st.column_config.NumberColumn("Versies", width=90)})
-        chosen = selection.selection.rows
-        if chosen and 0 <= chosen[0] < len(rows):
-            row = rows[chosen[0]]
+        selected_id = overview_selection(rows, table_key)
+        row = next((item for item in rows if item["id"] == selected_id), None)
+        if row is not None:
             st.subheader(row["name"])
             with st.form("rename_trip_" + row["id"]):
                 new_name = st.text_input("Tripnaam wijzigen", value=row["name"], max_chars=120)
