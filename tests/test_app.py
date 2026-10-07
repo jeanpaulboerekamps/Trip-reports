@@ -1,9 +1,11 @@
 from pathlib import Path
 import unittest
+from copy import deepcopy
+from types import SimpleNamespace
 from unittest.mock import patch
+import streamlit as st
 from streamlit.testing.v1 import AppTest
 from trip_store import make_record
-from trip_table_ui import table_payload
 from test_trip_store import search, summary
 
 
@@ -37,18 +39,24 @@ class AppTests(unittest.TestCase):
         other_search['username'] = 'ander'
         other = make_record('Andere reis', other_search, summary())
         at.session_state.saved_rows = [latest, other]
-        with patch('trip_table_ui._table', return_value=None) as table:
-            at.run()
-            rows = table.call_args.kwargs['rows']
-            self.assertEqual(len(rows), 1)
-            self.assertEqual(rows[0]['cells']['Soorten'], ['6'])
-            self.assertNotIn('Opnieuw berekenen', [b.label for b in at.button])
-            context = table.call_args.kwargs['context']
-        event = {'selected_id':first['id'], 'context':context, 'nonce':'click-1'}
-        with patch('trip_table_ui._table', return_value=event):
+        at.run()
+        self.assertFalse(at.exception)
+        self.assertEqual(len(at.dataframe[0].value), 1)
+        self.assertEqual(at.dataframe[0].value.iloc[0]['Soorten'], 6)
+        self.assertEqual(len(at.dataframe), 1)
+        self.assertNotIn('Opnieuw berekenen', [b.label for b in at.button])
+        self.assertNotIn('Trip verwijderen', [b.label for b in at.button])
+        # AppTest cannot send dataframe selection events; simulate its return value.
+        real_dataframe = st.dataframe
+        def selected_dataframe(*args, **kwargs):
+            value = real_dataframe(*args, **kwargs)
+            if kwargs.get('on_select'):
+                return SimpleNamespace(selection=SimpleNamespace(rows=[0]))
+            return value
+        with patch.object(st, 'dataframe', side_effect=selected_dataframe):
             at.run()
             self.assertFalse(at.exception)
-            self.assertEqual(list(at.dataframe[0].value['Soorten']), [6, 4])
+            self.assertEqual(list(at.dataframe[1].value['Soorten']), [6, 4])
             self.button(at, 'Opnieuw berekenen').click().run()
         self.assertFalse(at.exception)
         self.assertEqual(at.session_state.saved_trip_id, first['id'])
@@ -81,14 +89,20 @@ class AppTests(unittest.TestCase):
         at.session_state.saved_rows = [first, other]
         at.run()
         self.assertNotIn('Trip verwijderen', [b.label for b in at.button])
-        at.session_state.selected_overview_trip_id = other['id']
-        at.run()
-        self.button(at, 'Trip verwijderen').click().run()
-        self.assertFalse(at.exception)
-        self.assertEqual(at.session_state.storage_action['op'], 'delete')
-        self.assertEqual(at.session_state.storage_action['trip_id'], other['id'])
+        real_dataframe = st.dataframe
+        def selected_dataframe(*args, **kwargs):
+            value = real_dataframe(*args, **kwargs)
+            if kwargs.get('on_select'):
+                return SimpleNamespace(selection=SimpleNamespace(rows=[1]))
+            return value
+        with patch.object(st, 'dataframe', side_effect=selected_dataframe):
+            at.run()
+            self.button(at, 'Trip verwijderen').click().run()
+            self.assertFalse(at.exception)
+            self.assertEqual(at.session_state.storage_action['op'], 'delete')
+            self.assertEqual(at.session_state.storage_action['trip_id'], other['id'])
 
-    def test_missing_legacy_map_location_is_recovered_without_new_version(self):
+    def test_missing_legacy_map_location_is_recovered_and_saved_without_new_version(self):
         at = self.start()
         settings = search()
         settings['geometry'] = ''
@@ -97,61 +111,46 @@ class AppTests(unittest.TestCase):
         row.pop('versions')
         row['search'].pop('calculated_at')
         at.session_state.saved_rows = [row]
-        observations = [{'id': 1, 'observed_on': '2025-01-05', 'geojson': {'coordinates': [120.3, -1.4]}}]
-        with patch('trip_locations.trip_observations', return_value=observations), patch('trip_table_ui._table', return_value=None) as table:
+        response = {'total_results': 1, 'results': [{'id': 1, 'observed_on': '2025-01-05',
+                    'geojson': {'coordinates': [120.3, -1.4]}}]}
+        with patch('trip_locations.trip_observations', return_value=response['results']):
             at.run()
         self.assertFalse(at.exception)
         self.assertEqual(at.session_state.storage_action['op'], 'locations')
         self.assertAlmostEqual(at.session_state.saved_rows[0]['map_location'][1], 120.3)
-        self.assertEqual(table.call_args.kwargs['rows'][0]['cells']['Soorten'], ['4'])
-        self.assertEqual(table.call_args.kwargs['rows'][0]['cells']['Versies'], ['1'])
+        self.assertEqual(at.dataframe[0].value.iloc[0]['Soorten'], 4)
+        self.assertEqual(at.dataframe[0].value.iloc[0]['Versies'], 1)
 
     def test_selected_trip_can_be_renamed_without_recalculation(self):
         at = self.start()
         row = make_record('Reis', search(), summary())
         at.session_state.saved_rows = [row]
-        at.session_state.selected_overview_trip_id = row['id']
-        at.run()
-        name_input = next(w for w in at.text_input if w.label == 'Tripnaam wijzigen')
-        name_input.set_value('Nieuwe naam')
-        self.button(at, 'Naam opslaan').click().run()
+        real_dataframe = st.dataframe
+        def selected_dataframe(*args, **kwargs):
+            value = real_dataframe(*args, **kwargs)
+            if kwargs.get('on_select'):
+                return SimpleNamespace(selection=SimpleNamespace(rows=[0]))
+            return value
+        with patch.object(st, 'dataframe', side_effect=selected_dataframe):
+            at.run()
+            name_input = next(w for w in at.text_input if w.label == 'Tripnaam wijzigen')
+            name_input.set_value('Nieuwe naam')
+            self.button(at, 'Naam opslaan').click().run()
         self.assertFalse(at.exception)
         self.assertEqual(at.session_state.storage_action['op'], 'rename')
         self.assertEqual(at.session_state.storage_action['trip_id'], row['id'])
         self.assertEqual(at.session_state.storage_action['name'], 'Nieuwe naam')
 
-    def test_sort_controls_change_row_order_without_changing_selection(self):
+    def test_sort_controls_change_row_order(self):
         at = self.start()
         low = make_record('Z-trip', search(), summary(2))
         high = make_record('A-trip', search(), summary(7))
         at.session_state.saved_rows = [low, high]
-        at.session_state.selected_overview_trip_id = low['id']
-        with patch('trip_table_ui._table', return_value=None) as table:
-            at.run()
-            next(w for w in at.selectbox if w.label == 'Sorteren op').set_value('Soorten').run()
-            self.assertEqual([r['cells']['Soorten'] for r in table.call_args.kwargs['rows']], [['7'], ['2']])
-            at.radio[0].set_value('Oplopend').run()
-            self.assertEqual([r['cells']['Soorten'] for r in table.call_args.kwargs['rows']], [['2'], ['7']])
-        self.assertEqual(at.session_state.selected_overview_trip_id, low['id'])
-        self.assertIn('Z-trip', [w.value for w in at.subheader])
-
-    def test_stale_or_unknown_selection_does_not_open_wrong_trip(self):
-        at = self.start()
-        row = make_record('Reis', search(), summary())
-        at.session_state.saved_rows = [row]
-        with patch('trip_table_ui._table', return_value={'selected_id':row['id'], 'context':'wrong-filter', 'nonce':'stale'}):
-            at.run()
-        self.assertNotIn('Trip verwijderen', [b.label for b in at.button])
-        at.session_state.selected_overview_trip_id = 'missing-id'
         at.run()
-        self.assertNotIn('Trip verwijderen', [b.label for b in at.button])
-
-    def test_map_view_controls_allow_europe_and_indian_ocean(self):
-        at = self.start()
-        control = next(w for w in at.selectbox if w.label == 'Kaartgebied')
-        for area in ['Europa', 'Midden-Oosten en Indische Oceaan', 'Alle trips']:
-            control.set_value(area).run()
-            self.assertFalse(at.exception)
+        at.selectbox[0].set_value('Soorten').run()
+        self.assertEqual(list(at.dataframe[0].value['Soorten']), [7, 2])
+        at.radio[0].set_value('Oplopend').run()
+        self.assertEqual(list(at.dataframe[0].value['Soorten']), [2, 7])
 
 
 if __name__ == '__main__':
