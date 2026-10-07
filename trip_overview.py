@@ -4,7 +4,6 @@ from datetime import date
 import html
 
 import folium
-from folium.plugins import MarkerCluster
 
 from trip_store import normalize_record, version_key
 from trip_locations import stored_trip_location
@@ -23,9 +22,10 @@ def trip_table(rows):
         row = normalize_record(raw)
         latest = max(row["versions"], key=version_key)
         result.append({"Trip": row["name"], "Van": date.fromisoformat(row["start_date"]), "Tot": date.fromisoformat(row["end_date"]),
+                       **summary_columns(latest["summary"]),
                        "Berekend op": (version_key(latest).astimezone(ZoneInfo("Europe/Amsterdam"))
                                        if latest.get("calculated_at") else None),
-                       "Versies": len(row["versions"]), **summary_columns(latest["summary"])})
+                       "Versies": len(row["versions"])})
     return result
 
 
@@ -43,7 +43,6 @@ def version_table(row):
 def overview_map(rows):
     """One marker per trip, at a point inside its latest public observation area."""
     world = folium.Map(location=[20, 0], zoom_start=2, tiles="OpenStreetMap")
-    cluster = MarkerCluster(name="Trips").add_to(world)
     bounds = []
     missing = 0
     for raw in rows:
@@ -62,7 +61,7 @@ def overview_map(rows):
         folium.CircleMarker([lat, lon], radius=8, color="#205e3b", weight=2,
                             fill=True, fill_color="#3c995c", fill_opacity=0.9,
                             tooltip=html.escape(row["name"]),
-                      popup=folium.Popup(popup, max_width=320)).add_to(cluster)
+                      popup=folium.Popup(popup, max_width=320)).add_to(world)
         bounds.append([lat, lon])
     if bounds:
         world.fit_bounds(bounds, padding=(35, 35), max_zoom=9)

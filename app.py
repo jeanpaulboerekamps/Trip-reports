@@ -251,10 +251,17 @@ if st.session_state.page == "home":
         table_key = "trip_selection_" + hashlib.sha256(json.dumps([row["id"] for row in rows]).encode()).hexdigest()[:16]
         selection = st.dataframe(pd.DataFrame(trip_table(rows)), hide_index=True, use_container_width=True,
                                  key=table_key, on_select="rerun", selection_mode="single-row",
-                                 column_config={"Trip": st.column_config.TextColumn("Trip", width="large", pinned=True),
-                                                "Van": st.column_config.DateColumn(format="DD-MM-YYYY"),
-                                                "Tot": st.column_config.DateColumn(format="DD-MM-YYYY"),
-                                                "Berekend op": st.column_config.DatetimeColumn(format="DD-MM-YYYY HH:mm:ss")})
+                                 column_config={"Trip": st.column_config.TextColumn("Trip", width="medium", pinned=True),
+                                                "Van": st.column_config.DateColumn("Van", format="DD-MM-YYYY", width="small"),
+                                                "Tot": st.column_config.DateColumn("Tot", format="DD-MM-YYYY", width="small"),
+                                                "Waarnemingen": st.column_config.NumberColumn("Waarne\nmingen", width="small"),
+                                                "Soorten": st.column_config.NumberColumn("Soorten", width="small"),
+                                                "Niet op soort": st.column_config.NumberColumn("Niet op\nsoort", width="small"),
+                                                "Nieuw voor mij": st.column_config.NumberColumn("Nieuw voor\nmij", width="small"),
+                                                "Nieuw in gebied": st.column_config.NumberColumn("Nieuw in\ngebied", width="small"),
+                                                "Nieuw op iNat": st.column_config.NumberColumn("Nieuw op\niNat", width="small"),
+                                                "Berekend op": st.column_config.DatetimeColumn("Berekend\nop", format="DD-MM-YYYY HH:mm:ss", width="medium"),
+                                                "Versies": st.column_config.NumberColumn("Versies", width="small")})
         chosen = selection.selection.rows
         if chosen and 0 <= chosen[0] < len(rows):
             row = rows[chosen[0]]
