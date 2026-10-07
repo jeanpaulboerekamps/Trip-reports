@@ -49,12 +49,10 @@ def make_record(name, search, summary, trip_id=None, existing=None):
         raise ValueError("De gebruiker of reisperiode is gewijzigd. Bewaar dit als een nieuwe trip.")
     names = [*search.get("place_names", []),
              *([search.get("area_name") or "Automatisch reisgebied"] if search.get("geometry") else [])]
-    # Geometry is enough for the overview map; do not store all observation locations.
-    # Retain a real observation location as compact metadata for future maps.
-    from trip_locations import valid_location
-    location = next((valid_location(point) for point in search.get("heat_points", [])
-                     if valid_location(point)), None)
-    search = {**search, **({"map_location": location} if location else {})}
+    # Compute the density peak while full locations are available, then store only the marker.
+    from trip_locations import busiest_location, DENSITY_METHOD
+    location = busiest_location(search.get("heat_points") or [])
+    search = {**search, **({"map_location": location, "map_location_method": DENSITY_METHOD} if location else {})}
     search = deepcopy({k: v for k, v in search.items()
                        if k not in ("heat_points", "concentrations", "unidentified_records")})
     stamp = search.get("calculated_at")
@@ -152,3 +150,12 @@ def validate_import(raw):
             elif snapshot is not snapshots[0]:
                 raise ValueError("Versie-ID ontbreekt.")
     return [normalize_record(row) for row in records]
+
+
+def rename_record(row, name):
+    name = name.strip()
+    if not name or len(name) > 120:
+        raise ValueError("Geef de trip een naam van maximaal 120 tekens.")
+    updated = deepcopy(row)
+    updated["name"] = name
+    return updated

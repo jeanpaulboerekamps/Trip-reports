@@ -1,5 +1,6 @@
 """Overview map and compact tables for saved trip versions."""
 from zoneinfo import ZoneInfo
+from datetime import date
 import html
 
 import folium
@@ -21,8 +22,9 @@ def trip_table(rows):
     for raw in rows:
         row = normalize_record(raw)
         latest = max(row["versions"], key=version_key)
-        result.append({"Trip": row["name"], "Van": row["start_date"], "Tot": row["end_date"],
-                       "Berekend op": calculation_label(latest.get("calculated_at")),
+        result.append({"Trip": row["name"], "Van": date.fromisoformat(row["start_date"]), "Tot": date.fromisoformat(row["end_date"]),
+                       "Berekend op": (version_key(latest).astimezone(ZoneInfo("Europe/Amsterdam"))
+                                       if latest.get("calculated_at") else None),
                        "Versies": len(row["versions"]), **summary_columns(latest["summary"])})
     return result
 
@@ -65,3 +67,15 @@ def overview_map(rows):
     if bounds:
         world.fit_bounds(bounds, padding=(35, 35), max_zoom=9)
     return world, missing
+
+
+def sorted_trips(rows, column="Van", descending=True):
+    """Sort typed values, keeping unknown dates/counts last in either direction."""
+    pairs = [(row, trip_table([row])[0][column]) for row in rows]
+    known = [(row, value) for row, value in pairs if value is not None]
+    unknown = [row for row, value in pairs if value is None]
+    if column == "Trip":
+        known.sort(key=lambda pair: pair[1].casefold(), reverse=descending)
+    else:
+        known.sort(key=lambda pair: pair[1], reverse=descending)
+    return [row for row, _ in known] + unknown

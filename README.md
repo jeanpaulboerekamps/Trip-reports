@@ -1,6 +1,13 @@
-# Tripreport Verkenner - versie 18
+# Tripreport Verkenner - versie 19
 
 Een Streamlit-app voor openbare iNaturalist-waarnemingen tijdens een reis.
+
+## Nieuw in versie 19
+
+- De overzichtskaart gebruikt de openbare waarnemingslocatie met de meeste waarnemingen binnen een straal van **25 km**, gelijk aan de concentraties in het rapport. Alle waarnemingen met locatie tellen mee, ook waarnemingen die niet op soort zijn geïdentificeerd. Meerdere waarnemingen op dezelfde coördinaat tellen afzonderlijk. Bij gelijke aantallen kiest de app stabiel op coördinaatvolgorde.
+- Nieuwe berekeningen bewaren dit zwaartepunt direct. Voor bestaande trips haalt de app eenmalig alle benodigde waarnemingslocaties op, met behoud van datums, tijden en gebiedsfilters. De historische samenvattingen en versies blijven intact. Bij lange trips kan het eerste openen hierdoor langer duren. De marker wordt in browseropslag bewaard; bij een ophaalfout blijft de eerdere locatie zichtbaar en is opnieuw proberen mogelijk.
+- Selecteer een trip en wijzig **Tripnaam wijzigen**. Klik **Naam opslaan**. De naamwijziging maakt geen nieuwe berekeningsversie en behoudt alle eerdere totalen. De nieuwe naam verschijnt ook in kaartpopups en reservekopieën.
+- Boven de tabel staan **Sorteren op** en **Volgorde**. Iedere kolom is beschikbaar, waaronder naam, reisdatums, berekendatum, aantal versies en alle aantallen. Kies oplopend of aflopend. Onbekende datums/aantallen staan bij deze sorteerkeuze onderaan. Je kunt daarnaast op een kolomkop klikken voor de ingebouwde tabelsortering. Datumkolommen bevatten echte datumwaarden; onbekende berekendatums verschijnen als lege velden.
 
 ## Nieuw in versie 18
 
