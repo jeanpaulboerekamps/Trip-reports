@@ -26,9 +26,8 @@ _store_dir.mkdir(parents=True, exist_ok=True)
 _ebird_store = declare_component('trip_ebird_store', path=str(_store_dir))
 
 
-def render_ebird_overview(trips, table_component):
-    st.subheader(f'eBird-tripoverzicht ({len(trips)})')
-    st.caption('Dezelfde trips, alleen gefilterd op datum: van de eerste tot en met de laatste tripdag. Gebied en tijdstip tellen niet mee.')
+def load_ebird_index():
+    """Load/import the private export once, before rendering the shared trip table."""
     action = st.session_state.get('ebird_storage_action', {'op': 'load', 'nonce': 'initial'})
     event = _ebird_store(**action, key='ebird_personal_store', default=None)
     if isinstance(event, dict) and event.get('nonce') != st.session_state.get('ebird_storage_nonce'):
@@ -61,34 +60,23 @@ def render_ebird_overview(trips, table_component):
     data = st.session_state.get('ebird_data')
     if not data:
         st.info('Importeer je eBird-export om de vogels voor je bewaarde trips te bekijken.')
-        return
+        return None
     try:
         index = EbirdIndex(data)
     except (ValueError, KeyError, TypeError) as exc:
         st.error('De bewaarde eBird-import kon niet worden gelezen. Importeer de originele export opnieuw.')
-        return
+        return None
     st.caption(f"Import: {len(data['observations']):,} waarnemingen op {len(data['checklists']):,} checklists; {data['first_date']} t/m {data['last_date']}.".replace(',', '.'))
     st.caption('Waarnemingen = vogelregels op checklists. Ondersoorten worden op soort samengevoegd; onbepaalde vogels, hybriden en domestic types staan apart. Nieuw voor mij = eerste datum van die soort in deze export valt binnen de trip.')
-    if not trips:
-        st.info('Geen trips voor de huidige selectie.')
+    st.caption('eBird gebruikt uitsluitend de tripdatums; gebied en tijdstip tellen niet mee. Nieuwe trips worden direct uit deze import berekend.')
+    return index
+
+
+def render_ebird_birds(selected, index):
+    """Show the eBird bird details for the selected row of the combined table."""
+    if selected is None or index is None:
         return
-    results = {trip['id']: index.trip(trip) for trip in trips}
-    columns = list(next(iter(results.values()))[0])
-    sort_col, direction_col = st.columns([3, 2])
-    sort_by = sort_col.selectbox('eBird sorteren op', columns, index=columns.index('Van'), key='ebird_sort_column')
-    direction = direction_col.radio('eBird volgorde', ['Aflopend', 'Oplopend'], horizontal=True, key='ebird_sort_direction')
-    ordered = sorted(trips, key=lambda trip: results[trip['id']][0][sort_by].casefold() if sort_by == 'Trip' else results[trip['id']][0][sort_by], reverse=direction == 'Aflopend')
-    display_rows = []
-    for trip in ordered:
-        summary = results[trip['id']][0]
-        display_rows.append({'id': trip['id'], 'values': [date.fromisoformat(summary[column]).strftime('%d-%m-%Y') if column in ('Van','Tot') else str(summary[column]) for column in columns]})
-    signature = hashlib.sha256(json.dumps([[(trip['id'],trip['start_date'],trip['end_date']) for trip in ordered], data['first_date'],data['last_date'],len(data['observations']),st.session_state.get('ebird_storage_nonce')]).encode()).hexdigest()[:16]
-    chosen = table_component(rows=display_rows, columns=columns, widths=[32,11,11,9,10,8,10,9], label='eBird-tripoverzicht', key='ebird_selection_'+signature, default=None)
-    selected = next((trip for trip in ordered if trip['id'] == chosen), None)
-    if selected is None:
-        st.caption('Klik op een trip om de vogellijst te bekijken en te downloaden.')
-        return
-    summary, birds = results[selected['id']]
+    summary, birds = index.trip(selected)
     st.subheader('Vogels — ' + selected['name'])
     if not birds:
         st.info('Geen eBird-waarnemingen in deze tripperiode in de geladen export.')
