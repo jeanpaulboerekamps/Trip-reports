@@ -29,7 +29,7 @@ _BROWSER_COMPONENT_HTML = '<!doctype html>\n<html lang="nl"><head><meta charset=
 
 
 # Embedded responsive table: app.py alone is sufficient for deployment.
-_TRIP_TABLE_HTML = '<!doctype html>\n<html lang="nl"><head><meta charset="utf-8"><style>\n*{box-sizing:border-box}body{margin:0;color:var(--text,#31333f);background:var(--bg,#fff);font:14px/1.4 sans-serif}\n.wrap{max-height:560px;overflow-y:auto;border:1px solid #b8b8b850;border-radius:8px}\ntable{width:100%;table-layout:fixed;border-collapse:collapse}\nth,td{padding:8px 5px;border-bottom:1px solid #b8b8b840;border-right:1px solid #b8b8b830;vertical-align:top;white-space:normal;overflow-wrap:anywhere}\nth{position:sticky;top:0;background:var(--secondary,#f0f2f6);font-weight:600;text-align:left;hyphens:manual;z-index:1}\nth.ebird,td.ebird{background:#e5f3ff;color:#183b55}tr.selected td.ebird{background:#cbe8ff}tbody tr:hover td.ebird{background:#d3ebff}\ntd.number{text-align:right;font-variant-numeric:tabular-nums}\ntr.selected{background:var(--secondary,#f0f2f6)}tbody tr{cursor:pointer}tbody tr:hover{background:var(--secondary,#f0f2f6)}\nbutton{font:inherit;color:inherit;background:none;border:0;padding:0;width:100%;text-align:left;cursor:pointer;overflow-wrap:anywhere;white-space:normal}\nbutton:focus-visible{outline:2px solid var(--primary,#ff4b4b);outline-offset:2px}\n@media(max-width:700px){body{font-size:12px}th,td{padding:7px 3px}}\n</style></head><body><div class="wrap"><table aria-label="Tripoverzicht"><colgroup></colgroup><thead></thead><tbody></tbody></table></div>\n<script>\nlet selected = null;\nfunction send(type, extra = {}) {window.parent.postMessage({isStreamlitMessage:true,type,...extra},"*");}\nfunction resize(){send("streamlit:setFrameHeight",{height:Math.ceil(document.querySelector(\'.wrap\').getBoundingClientRect().height)+2});}\nfunction mark(){document.querySelectorAll(\'tbody tr\').forEach(row=>{const active=row.dataset.id===selected;row.classList.toggle(\'selected\',active);row.querySelector(\'button\').setAttribute(\'aria-pressed\',String(active));});}\nwindow.addEventListener(\'message\',event=>{\n if(event.data.type!=="streamlit:render")return;\n const {rows=[],columns=[],widths=[24,8,8,6.5,6.5,6.5,6.5,6.5,6.5,14,7],label=\'Tripoverzicht\'}=event.data.args||{};\n document.querySelector(\'table\').setAttribute(\'aria-label\',label);\n const theme=event.data.theme||{};\n for(const [name,value] of Object.entries({text:theme.textColor,bg:theme.backgroundColor,secondary:theme.secondaryBackgroundColor,primary:theme.primaryColor}))if(value)document.body.style.setProperty(\'--\'+name,value);\n if(!rows.some(row=>row.id===selected))selected=null;\n const group=document.querySelector(\'colgroup\'),head=document.querySelector(\'thead\'),body=document.querySelector(\'tbody\');\n group.replaceChildren();head.replaceChildren();body.replaceChildren();\n const headings=document.createElement(\'tr\');\n columns.forEach((column,i)=>{const col=document.createElement(\'col\');col.style.width=widths[i]+\'%\';group.append(col);const th=document.createElement(\'th\');th.scope=\'col\';th.textContent=column.replace(\'Waarnemingen\',\'Waar\\u00adnemingen\').replace(\'Soorten\',\'Soor\\u00adten\').replace(\'Versies\',\'Ver\\u00adsies\');headings.append(th);});\n head.append(headings);\n rows.forEach(row=>{const tr=document.createElement(\'tr\');tr.dataset.id=row.id;\n  const choose=()=>{selected=selected===row.id?null:row.id;mark();send(\'streamlit:setComponentValue\',{dataType:\'json\',value:selected});};\n  row.values.forEach((value,i)=>{const td=document.createElement(\'td\');if(i>=3&&columns[i]!==\'Berekend op\')td.className=\'number\';\n   if(i===0){const button=document.createElement(\'button\');button.type=\'button\';button.textContent=value;button.addEventListener(\'click\',event=>{event.stopPropagation();choose();});td.append(button);}else td.textContent=value;\n   tr.append(td);\n  });tr.addEventListener(\'click\',choose);body.append(tr);\n });mark();requestAnimationFrame(resize);\n});\nnew ResizeObserver(resize).observe(document.querySelector(\'.wrap\'));\nsend(\'streamlit:componentReady\',{apiVersion:1});\n</script></body></html>\n'
+_TRIP_TABLE_HTML = '<!doctype html>\n<html lang="nl"><head><meta charset="utf-8"><style>\n*{box-sizing:border-box}body{margin:0;color:var(--text,#31333f);background:var(--bg,#fff);font:14px/1.4 sans-serif}\n.wrap{max-height:560px;overflow-y:auto;border:1px solid #b8b8b850;border-radius:8px}\ntable{width:100%;table-layout:fixed;border-collapse:collapse}\nth,td{padding:7px 3px;border-bottom:1px solid #b8b8b840;border-right:1px solid #b8b8b830;vertical-align:top;white-space:normal;overflow-wrap:normal;word-break:normal}\nth{position:sticky;top:0;background:var(--secondary,#f0f2f6);font-weight:600;text-align:left;hyphens:manual;z-index:1}\nth.ebird,td.ebird{background:#dcefff!important;color:#183b55}tr.selected td.ebird{background:#cbe8ff}tbody tr:hover td.ebird{background:#d3ebff}\ntd.number{text-align:right;font-variant-numeric:tabular-nums}\ntr.selected{background:var(--secondary,#f0f2f6)}tbody tr{cursor:pointer}tbody tr:hover{background:var(--secondary,#f0f2f6)}\nbutton{font:inherit;color:inherit;background:none;border:0;padding:0;width:100%;text-align:left;cursor:pointer;overflow-wrap:anywhere;white-space:normal}\nbutton:focus-visible{outline:2px solid var(--primary,#ff4b4b);outline-offset:2px}\n@media(max-width:700px){body{font-size:12px}th,td{padding:7px 3px}}\n</style></head><body><div class="wrap"><table aria-label="Tripoverzicht"><colgroup></colgroup><thead></thead><tbody></tbody></table></div>\n<script>\nlet selected = null;\nfunction send(type, extra = {}) {window.parent.postMessage({isStreamlitMessage:true,type,...extra},"*");}\nfunction resize(){send("streamlit:setFrameHeight",{height:Math.ceil(document.querySelector(\'.wrap\').getBoundingClientRect().height)+2});}\nfunction mark(){document.querySelectorAll(\'tbody tr\').forEach(row=>{const active=row.dataset.id===selected;row.classList.toggle(\'selected\',active);row.querySelector(\'button\').setAttribute(\'aria-pressed\',String(active));});}\nwindow.addEventListener(\'message\',event=>{\n if(event.data.type!=="streamlit:render")return;\n const {rows=[],columns=[],widths=[24,8,8,6.5,6.5,6.5,6.5,6.5,6.5,14,7],ebirdStart=-1,ebirdCount=0,label=\'Tripoverzicht\'}=event.data.args||{};\n document.querySelector(\'table\').setAttribute(\'aria-label\',label);\n const theme=event.data.theme||{};\n for(const [name,value] of Object.entries({text:theme.textColor,bg:theme.backgroundColor,secondary:theme.secondaryBackgroundColor,primary:theme.primaryColor}))if(value)document.body.style.setProperty(\'--\'+name,value);\n if(!rows.some(row=>row.id===selected))selected=null;\n const group=document.querySelector(\'colgroup\'),head=document.querySelector(\'thead\'),body=document.querySelector(\'tbody\');\n group.replaceChildren();head.replaceChildren();body.replaceChildren();\n const headings=document.createElement(\'tr\');\n columns.forEach((column,i)=>{const col=document.createElement(\'col\');col.style.width=widths[i]+\'%\';group.append(col);const th=document.createElement(\'th\');th.scope=\'col\';th.textContent=column.replace(\'Waarnemingen\',\'Waar\\u00adnemingen\').replace(\'Soorten\',\'Soor\\u00adten\').replace(\'Versies\',\'Ver\\u00adsies\');headings.append(th);});\n head.append(headings);\n rows.forEach(row=>{const tr=document.createElement(\'tr\');tr.dataset.id=row.id;\n  const choose=()=>{selected=selected===row.id?null:row.id;mark();send(\'streamlit:setComponentValue\',{dataType:\'json\',value:selected});};\n  row.values.forEach((value,i)=>{const td=document.createElement(\'td\');if(i>=3&&columns[i]!==\'Berekend op\')td.className=\'number\';\n   if(i===0){const button=document.createElement(\'button\');button.type=\'button\';button.textContent=value;button.addEventListener(\'click\',event=>{event.stopPropagation();choose();});td.append(button);}else td.textContent=value;\n   tr.append(td);\n  });tr.addEventListener(\'click\',choose);body.append(tr);\n });mark();requestAnimationFrame(resize);\n});\nnew ResizeObserver(resize).observe(document.querySelector(\'.wrap\'));\nsend(\'streamlit:componentReady\',{apiVersion:1});\n</script></body></html>\n'
 
 from trip_store import make_record, summary_snapshot, matches_search, validate_import, normalize_record, merge_records, same_trip, rename_record
 from trip_overview import overview_map, trip_table, version_table, calculation_label, sorted_trips
@@ -108,35 +108,38 @@ if isinstance(storage_event, dict):
     if isinstance(previous_report, str) and re.fullmatch(r'[a-f0-9]{32}', previous_report):
         st.session_state.previous_report_token = previous_report
 
-trip_table_dir = Path(tempfile.gettempdir()) / "tripreport-responsive-table-v24"
+trip_table_dir = Path(tempfile.gettempdir()) / "tripreport-responsive-table-v25"
 trip_table_dir.mkdir(parents=True, exist_ok=True)
 (trip_table_dir / "index.html").write_text(_TRIP_TABLE_HTML, encoding="utf-8")
 responsive_trip_table = declare_component("trip_responsive_table", path=str(trip_table_dir))
 
 
 def overview_selection(rows, key, ebird_index=None):
-    """Use stable trip IDs so a selection cannot target a different sorted row."""
+    """Show iNaturalist and eBird together, with metadata at the far right."""
     values = trip_table(rows)
     ebird_columns = ["Checklists", "Waarnemingen", "Soorten", "Niet op soort", "Nieuw voor mij"]
+    metadata = ["Berekend op", "Versies"]
+    base_columns = [col for col in values[0] if col not in metadata] if values else []
+    columns = base_columns + (ebird_columns if ebird_index is not None else []) + metadata
     display_rows = []
     for row, values_row in zip(rows, values):
+        ebird_summary = ebird_index.trip(row)[0] if ebird_index is not None else {}
         cells = []
-        for column, value in values_row.items():
+        for column in columns:
+            value = ebird_summary[column] if column in ebird_columns and ebird_index is not None else values_row[column]
             if column in ("Van", "Tot"):
                 value = value.strftime("%d-%m-%Y")
             elif column == "Berekend op":
                 value = value.strftime("%d-%m-%Y %H:%M:%S") if value else "Onbekend"
             cells.append(str(value))
-        if ebird_index is not None:
-            ebird_summary, _ = ebird_index.trip(row)
-            cells.extend(str(ebird_summary[col]) for col in ebird_columns)
         display_rows.append({"id": row["id"], "values": cells})
-    columns = list(values[0]) + (["eBird " + col for col in ebird_columns] if ebird_index is not None else [])
-    widths = ([19, 7, 7, 6, 6, 6, 6, 6, 6, 12, 5] + [2.8, 3.6, 3.6, 3.6, 4.4] if ebird_index is not None else None)
-    options = {"rows": display_rows, "columns": columns, "key": key, "default": None}
-    if widths is not None:
-        options["widths"] = widths
-    return responsive_trip_table(**options)
+    # Fixed proportions sum to 100, with sufficient room for readable labels.
+    widths = ([20, 7, 7, 6, 5, 6, 6, 6, 6] + [5, 7, 5, 6, 6] + [10, 4]
+              if ebird_index is not None else [24, 8, 8, 7, 6, 7, 7, 7, 7, 13, 6])
+    return responsive_trip_table(rows=display_rows, columns=columns, widths=widths,
+                                 ebirdStart=len(base_columns) if ebird_index is not None else -1,
+                                 ebirdCount=len(ebird_columns) if ebird_index is not None else 0,
+                                 key=key, default=None)
 
 
 restore_token = st.session_state.get('report_job') or st.query_params.get('report')
