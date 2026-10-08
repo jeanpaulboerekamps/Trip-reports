@@ -104,3 +104,39 @@ Een groene rand om de hele soortenkaart betekent dat minstens één van de waarn
 Bij een nieuwe berekening wordt de huidige RG-status na de stercontroles opnieuw opgehaald. Een eerder bewaard of geladen rapport kan een oudere status hebben: klik **RG-status actualiseren** om alleen deze status te vernieuwen en maak daarna opnieuw de PDF. Een mislukte verversing behoudt de oudere status en geeft een melding.
 
 De PDF vermeldt bovenaan de datum en tijd waarop de berekening afgerond is, in de tijdzone Europe/Amsterdam. Het is de berekeningsdatum, niet de datum van downloaden. Elke pagina heeft Pagina x van y, inclusief kaartpagina en de kleinere foto's achteraan. Bij oudere afgeronde serverrapporten wordt de bewaarde voltooiingstijd gebruikt; als de datum niet beschikbaar is, wordt dat vermeld.
+
+
+## eBird-overzicht (v25)
+
+Vervang het volledige project door deze versie: naast `app.py` zijn
+`ebird_data.py` en `ebird_ui.py` nodig. Er zijn geen nieuwe dependencies.
+
+Onder het bestaande Tripoverzicht staat een eBird-tripoverzicht. Upload je
+persoonlijke `MyEBirdData.csv` of de originele eBird-zip via **eBird-export
+importeren of vernieuwen**. De import wordt in IndexedDB in dezelfde browser
+bewaard; je kunt later een nieuwe volledige export laden. De persoonlijke
+export zelf wordt niet met de projectcode meegeleverd. De import bevat alleen
+vogelnaam, taxonomische volgorde, checklist-ID, datum en aantal; opmerkingen,
+coördinaten en andere niet benodigde velden worden niet bewaard.
+
+De app hergebruikt de trips van de gekozen iNaturalist-gebruiker en de huidige
+zoekselectie. Elke trip telt de eBird-waarnemingen vanaf de eerste tot en met de
+laatste kalenderdag. Gebied, coördinaten en start-/eindtijd worden niet gebruikt.
+Overlappende trips kunnen dezelfde waarnemingen tellen.
+
+- Checklists: unieke Submission IDs binnen de datums.
+- Waarnemingen: unieke vogelregels per checklist, oorspronkelijke taxonnaam en datum.
+- Soorten: unieke wetenschappelijke soortnamen; ondersoorten en groepen worden
+  op hun binomiale naam samengevoegd. Onbepaalde taxa, soortcombinaties, hybriden
+  en domestic types worden afzonderlijk getoond onder Niet op soort.
+- Nieuw voor mij: de eerste waarnemingsdatum van de soort in de gehele geladen
+  export valt binnen de trip. Dit hangt af van de volledigheid van je export.
+
+Klik op een trip voor de vogellijst en een CSV-download, eventueel alleen met
+nieuwe soorten. Bekend aantal is de som van ingevoerde aantallen; dit is geen
+schatting van unieke individuen. `X` blijft als onbekend aantal behouden.
+Soortnamen volgen de export; deze import voert geen taxonomische splitsingen
+of samenvoegingen uit buiten het groeperen op binomiale naam.
+
+Verificatie van import en datums:
+`python -m unittest discover -s tests -p test_ebird_data.py`
