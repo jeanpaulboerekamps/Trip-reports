@@ -125,8 +125,11 @@ def overview_selection(rows, key, ebird_index=None):
     for row, values_row in zip(rows, values):
         ebird_summary = ebird_index.trip(row)[0] if ebird_index is not None else {}
         cells = []
-        for column in columns:
-            value = ebird_summary[column] if column in ebird_columns and ebird_index is not None else values_row[column]
+        for index, column in enumerate(columns):
+            # Use the column position, not its name: iNaturalist and eBird
+            # share labels such as Waarnemingen, Soorten and Nieuw voor mij.
+            is_ebird_column = ebird_index is not None and len(base_columns) <= index < len(base_columns) + len(ebird_columns)
+            value = ebird_summary.get(column, 0) if is_ebird_column else values_row[column]
             if column in ("Van", "Tot"):
                 value = value.strftime("%d-%m-%Y")
             elif column == "Berekend op":
