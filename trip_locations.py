@@ -23,7 +23,8 @@ def valid_location(value):
     return None
 
 
-DENSITY_METHOD = "density-25km-v1"
+DENSITY_METHOD = "cluster-180km-peak-25km-v2"
+LEGACY_DENSITY_METHOD = "density-25km-v1"
 
 
 def busiest_location(points):
@@ -36,41 +37,79 @@ def busiest_location(points):
     if not locations:
         return None
     coords, weights = np.unique(np.radians(locations), axis=0, return_counts=True)
-    threshold = np.sin(25 / 6371.0088 / 2) ** 2
-    best_count, best_index = -1, 0
-    # Chunk both axes so even large trips do not allocate an N x N matrix.
-    for offset in range(0, len(coords), 128):
+    # Combine nearby observations into geographic regions first. This prevents
+    # one dense mainland city from beating a larger, spread-out island trip.
+    # The 180 km link radius joins the main Galápagos islands, but not Ecuador.
+    n = len(coords)
+    parent = np.arange(n)
+
+    def root(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = int(parent[i])
+        return i
+
+    def connect(i, j):
+        ri, rj = root(i), root(j)
+        if ri != rj:
+            parent[max(ri, rj)] = min(ri, rj)
+
+    link_threshold = np.sin(180 / 6371.0088 / 2) ** 2
+    for offset in range(0, n, 128):
         centres = coords[offset:offset + 128]
-        counts = np.zeros(len(centres), dtype=np.int64)
-        for start in range(0, len(coords), 2048):
+        for start in range(offset, n, 2048):
             neighbours = coords[start:start + 2048]
             delta = centres[:, None, :] - neighbours[None, :, :]
             hav = (np.sin(delta[:, :, 0] / 2) ** 2 + np.cos(centres[:, None, 0])
                    * np.cos(neighbours[None, :, 0]) * np.sin(delta[:, :, 1] / 2) ** 2)
-            counts += (hav <= threshold) @ weights[start:start + 2048]
+            for i, j in np.argwhere(hav <= link_threshold):
+                ii, jj = offset + int(i), start + int(j)
+                if ii < jj:
+                    connect(ii, jj)
+
+    groups = np.array([root(i) for i in range(n)])
+    totals = np.bincount(groups, weights=weights, minlength=n)
+    winning_group = int(np.argmax(totals))
+    chosen = np.flatnonzero(groups == winning_group)
+    # Within the winning region, put the marker on an actual observation
+    # with the most observations within 25 km (deterministic ties).
+    threshold = np.sin(25 / 6371.0088 / 2) ** 2
+    best_count, best_index = -1, int(chosen[0])
+    for offset in range(0, len(chosen), 128):
+        indices = chosen[offset:offset + 128]
+        centres = coords[indices]
+        counts = np.zeros(len(centres), dtype=np.int64)
+        for start in range(0, len(chosen), 2048):
+            neighbours_idx = chosen[start:start + 2048]
+            neighbours = coords[neighbours_idx]
+            delta = centres[:, None, :] - neighbours[None, :, :]
+            hav = (np.sin(delta[:, :, 0] / 2) ** 2 + np.cos(centres[:, None, 0])
+                   * np.cos(neighbours[None, :, 0]) * np.sin(delta[:, :, 1] / 2) ** 2)
+            counts += (hav <= threshold) @ weights[neighbours_idx]
         index = int(np.argmax(counts))
         if int(counts[index]) > best_count:
-            best_count, best_index = int(counts[index]), offset + index
+            best_count, best_index = int(counts[index]), int(indices[index])
     return np.degrees(coords[best_index]).tolist()
 
 
 def has_density_location(raw):
     row = normalize_record(raw)
     latest = max(row['versions'], key=version_key)
-    return bool((latest['search'].get('map_location_method') == DENSITY_METHOD
+    accepted = {DENSITY_METHOD, LEGACY_DENSITY_METHOD}
+    return bool((latest['search'].get('map_location_method') in accepted
                  and valid_location(latest['search'].get('map_location')))
-                or (row.get('map_location_method') == DENSITY_METHOD
+                or (row.get('map_location_method') in accepted
                     and valid_location(row.get('map_location'))))
 
 
 def stored_trip_location(raw):
     row = normalize_record(raw)
     latest = max(row['versions'], key=version_key)
-    if latest['search'].get('map_location_method') == DENSITY_METHOD:
+    if latest['search'].get('map_location_method') in (DENSITY_METHOD, LEGACY_DENSITY_METHOD):
         location = valid_location(latest['search'].get('map_location'))
         if location:
             return location
-    if row.get('map_location_method') == DENSITY_METHOD:
+    if row.get('map_location_method') in (DENSITY_METHOD, LEGACY_DENSITY_METHOD):
         location = valid_location(row.get('map_location'))
         if location:
             return location

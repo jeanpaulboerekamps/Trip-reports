@@ -247,10 +247,19 @@ if st.session_state.page == "home":
                        key=lambda row: row["start_date"], reverse=True)
     st.caption("Je bewaarde trips in deze browser. Totalen zijn van de meest recente berekening. Berekentijden: Europe/Amsterdam.")
     st.subheader("Trips op de kaart")
-    st.caption("De marker staat bij de waarnemingslocatie met de meeste waarnemingen binnen 25 km. Alleen openbare locaties tellen mee.")
+    st.caption("De marker staat in de regio met de meeste waarnemingen, op de drukste locatie binnen 25 km. Alleen openbare locaties tellen mee.")
     recovered = []
     location_errors = []
-    missing_rows = [row for row in user_rows if not has_density_location(row)]
+    # Recalculate only older Ecuador/Galápagos markers once; leave all other
+    # existing trips untouched and avoid a costly full-history refetch.
+    def needs_location_refresh(row):
+        if not has_density_location(row):
+            return True
+        name = row.get("name", "").casefold()
+        return (any(term in name for term in ("ecuador", "galapagos", "galápagos"))
+                and row.get("map_location_method") != DENSITY_METHOD)
+
+    missing_rows = [row for row in user_rows if needs_location_refresh(row)]
     if missing_rows:
         with st.spinner("Plaatsen met de meeste waarnemingen bepalen…"):
             for row in missing_rows:
@@ -270,14 +279,6 @@ if st.session_state.page == "home":
     st_folium(world, height=430, use_container_width=True, returned_objects=[], key="trips_overview_map_" + map_signature)
     if location_errors and not missing:
         st.warning("De drukste locatie kon nog niet worden bepaald voor: " + ", ".join(location_errors) + ". De eerdere kaartlocatie blijft zichtbaar.")
-        if st.button("Kaartlocaties opnieuw ophalen"):
-            cached_trip_location.clear()
-            st.rerun()
-    if missing:
-        names = ", ".join(row["name"] for row in user_rows if stored_trip_location(row) is None)
-        st.caption("Nog niet op de kaart: " + names + ". Geen openbare locatie gevonden of ophalen is niet gelukt.")
-        if location_errors:
-            st.warning("Kaartlocaties konden niet worden opgehaald voor: " + ", ".join(location_errors))
         if st.button("Kaartlocaties opnieuw ophalen"):
             cached_trip_location.clear()
             st.rerun()
