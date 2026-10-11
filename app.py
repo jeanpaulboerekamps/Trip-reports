@@ -287,56 +287,6 @@ if st.session_state.page == "home":
         if st.button("Kaartlocaties opnieuw ophalen"):
             cached_trip_location.clear()
             st.rerun()
-    with st.expander("Diagnose Ecuador/Galápagos (alleen lezen)"):
-        candidates = [r for r in user_rows if any(t in r.get("name", "").casefold() for t in ("ecuador", "galapagos", "galápagos"))]
-        if not candidates:
-            st.info("Geen Ecuador/Galápagos-trip gevonden voor deze gebruikersnaam.")
-        else:
-            chosen_id = st.selectbox("Trip voor diagnose", [r["id"] for r in candidates],
-                                     format_func=lambda rid: next(r["name"] for r in candidates if r["id"] == rid),
-                                     key="diagnose_trip_id")
-            chosen = next(r for r in candidates if r["id"] == chosen_id)
-            st.write("Opgeslagen marker:", chosen.get("map_location"),
-                     "Methode:", chosen.get("map_location_method", "onbekend"))
-            st.write("Getoonde marker:", stored_trip_location(chosen))
-            if st.button("Waarnemingslocaties onderzoeken (geen opslag)", key="diagnose_locations"):
-                from trip_locations import busiest_location
-                from shapely.geometry import shape, mapping
-                from shapely import make_valid
-                search = chosen["search"]
-                try:
-                    start, end = date.fromisoformat(search["start"]), date.fromisoformat(search["end"])
-                    geom = search.get("geometry")
-                    geom = json.loads(geom) if isinstance(geom, str) and geom else geom
-                    if geom and geom.get("type") == "Feature":
-                        geom = geom.get("geometry")
-                    if geom:
-                        polygon = shape(geom)
-                        if not polygon.is_valid:
-                            geom = mapping(make_valid(polygon))
-                    with st.spinner("iNaturalist-waarnemingen ophalen…"):
-                        observations = trip_observations(search["username"].strip(), start, end,
-                                                         tuple(search.get("places") or []), geom)
-                        selected, _ = select_time_window(observations, start, end,
-                                            time.fromisoformat(search.get("start_time", "00:00")),
-                                            time.fromisoformat(search.get("end_time", "23:59")))
-                        points = observation_points(selected)
-                        islands = [p for p in points if -2.2 <= p[0] <= 1.9 and -92.5 <= p[1] <= -89.0]
-                        mainland = [p for p in points if -5.5 <= p[0] <= 2.0 and -81.5 <= p[1] <= -75.0]
-                        peak = busiest_location(points)
-                    result = {"trip": chosen["name"], "opgehaalde_waarnemingen": len(observations),
-                              "na_datumfilter": len(selected), "met_bruikbare_coordinaten": len(points),
-                              "galapagos_binnen_ruwe_grenzen": len(islands),
-                              "ecuador_vasteland_binnen_ruwe_grenzen": len(mainland),
-                              "overige_locaties": len(points) - len(islands) - len(mainland),
-                              "berekende_marker": peak,
-                              "bestaande_marker": stored_trip_location(chosen),
-                              "opslagmethode": chosen.get("map_location_method")}
-                    st.json(result)
-                    st.caption("De geografische grenzen zijn uitsluitend diagnostisch. Er worden geen trips of markers opgeslagen of gewijzigd.")
-                except Exception as exc:
-                    st.error(f"Diagnose mislukt: {type(exc).__name__}: {exc}")
-                    st.caption("Ook deze fout is nuttige diagnose-informatie. Er is niets gewijzigd.")
     needle = st.text_input("Zoek op tripnaam, gebied of datum", key="trip_overview_search")
     rows = [row for row in user_rows if matches_search(row, needle)]
     st.subheader(f"Tripoverzicht ({len(rows)})")
