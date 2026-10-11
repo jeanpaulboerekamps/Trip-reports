@@ -65,7 +65,7 @@ window.addEventListener("message", event => {
         if (row && Array.isArray(item.map_location) && item.map_location.length === 2 &&
             item.map_location.every(Number.isFinite) && Math.abs(item.map_location[0]) <= 90 && Math.abs(item.map_location[1]) <= 180) {
           row.map_location = item.map_location;
-          if (item.map_location_method === "density-25km-v1") row.map_location_method = item.map_location_method;
+          if (["density-25km-v1", "cluster-180km-peak-25km-v2"].includes(item.map_location_method)) row.map_location_method = item.map_location_method;
         }
       });
       localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
