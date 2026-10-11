@@ -105,12 +105,21 @@ def has_density_location(raw):
 def stored_trip_location(raw):
     row = normalize_record(raw)
     latest = max(row['versions'], key=version_key)
-    if latest['search'].get('map_location_method') in (DENSITY_METHOD, LEGACY_DENSITY_METHOD):
+    # A refreshed row-level marker must take priority over old version snapshots.
+    if row.get('map_location_method') == DENSITY_METHOD:
+        location = valid_location(row.get('map_location'))
+        if location:
+            return location
+    if latest['search'].get('map_location_method') == DENSITY_METHOD:
         location = valid_location(latest['search'].get('map_location'))
         if location:
             return location
-    if row.get('map_location_method') in (DENSITY_METHOD, LEGACY_DENSITY_METHOD):
+    if row.get('map_location_method') == LEGACY_DENSITY_METHOD:
         location = valid_location(row.get('map_location'))
+        if location:
+            return location
+    if latest['search'].get('map_location_method') == LEGACY_DENSITY_METHOD:
+        location = valid_location(latest['search'].get('map_location'))
         if location:
             return location
     for version in sorted(row['versions'], key=version_key, reverse=True):
