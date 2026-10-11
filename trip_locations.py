@@ -25,8 +25,7 @@ def valid_location(value):
 
 EBIRD_METHOD = "ebird-most-species-checklist-v1"
 DENSITY_METHOD = "cluster-180km-peak-25km-v2"
-LEGACY_EBIRD_METHOD = "ebird-most-species-checklist-v1"
-DENSITY_METHOD = "density-25km-v1"
+LEGACY_DENSITY_METHOD = "density-25km-v1"
 GALAPAGOS_METHOD = "galapagos-observation-peak-v1"
 
 
