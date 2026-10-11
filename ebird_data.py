@@ -48,6 +48,7 @@ def parse_csv(stream):
     checklists = []
     checklist_ids = {}
     observations = []
+    checklist_locations = {}
     seen = set()
     for line, row in enumerate(reader, 2):
         stamp = (row.get('Date') or '').strip()
@@ -74,6 +75,16 @@ def parse_csv(stream):
             except ValueError:
                 order = 1e9
             taxa.append([taxon_key, common.split(' (')[0] if key else common, order, bool(key)])
+        # eBird personal exports normally include latitude and longitude per row.
+        # Keep them once per checklist, even if a row is later deduplicated.
+        if submission not in checklist_locations:
+            try:
+                lat = float((row.get('Latitude') or '').strip())
+                lon = float((row.get('Longitude') or '').strip())
+                if -90 <= lat <= 90 and -180 <= lon <= 180:
+                    checklist_locations[submission] = [lat, lon]
+            except (ValueError, TypeError):
+                pass
         if submission not in checklist_ids:
             checklist_ids[submission] = len(checklists)
             checklists.append(submission)
@@ -89,6 +100,7 @@ def parse_csv(stream):
         raise ValueError('De export bevat geen waarnemingen.')
     observations.sort(key=lambda row: row[0])
     return {'format': 1, 'taxa': taxa, 'checklists': checklists, 'observations': observations,
+            'checklist_locations': [checklist_locations.get(c) for c in checklists],
             'first_date': observations[0][0], 'last_date': observations[-1][0]}
 
 
@@ -104,6 +116,21 @@ class EbirdIndex:
             self.days[stamp].append(observation)
             if data['taxa'][taxon][3]:
                 self.first_seen[taxon] = min(stamp, self.first_seen.get(taxon, stamp))
+
+    def busiest_checklist_location(self, trip):
+        """Coordinates of the checklist with most distinct full species in trip dates."""
+        locations = self.data.get('checklist_locations') or []
+        counts = defaultdict(set)
+        for stamp, rows in self.days.items():
+            if trip['start_date'] <= stamp <= trip['end_date']:
+                for _, checklist, taxon, _ in rows:
+                    if self.data['taxa'][taxon][3] and checklist < len(locations) and locations[checklist]:
+                        counts[checklist].add(taxon)
+        if not counts:
+            return None
+        # Deterministic tie break: original checklist order.
+        winner = min(counts, key=lambda index: (-len(counts[index]), index))
+        return locations[winner]
 
     def trip(self, trip):
         start, end = trip['start_date'], trip['end_date']

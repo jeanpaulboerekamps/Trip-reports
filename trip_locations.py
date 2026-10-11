@@ -23,8 +23,10 @@ def valid_location(value):
     return None
 
 
+EBIRD_METHOD = "ebird-most-species-checklist-v1"
 DENSITY_METHOD = "cluster-180km-peak-25km-v2"
-LEGACY_DENSITY_METHOD = "density-25km-v1"
+LEGACY_EBIRD_METHOD = "ebird-most-species-checklist-v1"
+DENSITY_METHOD = "density-25km-v1"
 GALAPAGOS_METHOD = "galapagos-observation-peak-v1"
 
 
@@ -122,6 +124,10 @@ def has_density_location(raw):
 def stored_trip_location(raw):
     row = normalize_record(raw)
     latest = max(row['versions'], key=version_key)
+    if row.get('map_location_method') == EBIRD_METHOD:
+        location = valid_location(row.get('map_location'))
+        if location:
+            return location
     # An island-specific corrected marker takes priority over old mainland snapshots.
     if row.get("map_location_method") == GALAPAGOS_METHOD:
         location = valid_location(row.get("map_location"))

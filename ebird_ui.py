@@ -68,7 +68,7 @@ def load_ebird_index():
         return None
     st.caption(f"Import: {len(data['observations']):,} waarnemingen op {len(data['checklists']):,} checklists; {data['first_date']} t/m {data['last_date']}.".replace(',', '.'))
     st.caption('Waarnemingen = vogelregels op checklists. Ondersoorten worden op soort samengevoegd; onbepaalde vogels, hybriden en domestic types staan apart. Nieuw voor mij = eerste datum van die soort in deze export valt binnen de trip.')
-    st.caption('eBird gebruikt uitsluitend de tripdatums; gebied en tijdstip tellen niet mee. Nieuwe trips worden direct uit deze import berekend.')
+    st.caption('eBird gebruikt uitsluitend de tripdatums; gebied en tijdstip tellen niet mee. De kaart gebruikt de checklist met de meeste soorten als de export coördinaten bevat. Bij een oudere import: importeer de originele eBird-export opnieuw om kaartlocaties beschikbaar te maken.')
     return index
 
 
