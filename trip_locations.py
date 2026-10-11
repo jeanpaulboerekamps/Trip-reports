@@ -25,6 +25,7 @@ def valid_location(value):
 
 DENSITY_METHOD = "cluster-180km-peak-25km-v2"
 LEGACY_DENSITY_METHOD = "density-25km-v1"
+GALAPAGOS_METHOD = "galapagos-observation-peak-v1"
 
 
 def busiest_location(points):
@@ -92,10 +93,26 @@ def busiest_location(points):
     return np.degrees(coords[best_index]).tolist()
 
 
+def galapagos_trip(search):
+    """Only the verified 2015 Ecuador/Galápagos itinerary, not other Ecuador trips."""
+    title = str(search.get('trip_name') or search.get('name') or '').casefold()
+    return (search.get('start') == '2015-06-29'
+            and search.get('end') == '2015-07-19'
+            and ('galapagos' in title or 'galápagos' in title))
+
+
+def galapagos_observation_peak(points):
+    """Use a real observation point on the islands, not an invented centroid."""
+    islands = [p for p in points if (q := valid_location(p))
+               and -2.1 <= q[0] <= 1.0 and -92.2 <= q[1] <= -89.0]
+    # Fail safely rather than silently selecting mainland when island data is absent.
+    return busiest_location(islands) if len(islands) >= 10 else None
+
+
 def has_density_location(raw):
     row = normalize_record(raw)
     latest = max(row['versions'], key=version_key)
-    accepted = {DENSITY_METHOD, LEGACY_DENSITY_METHOD}
+    accepted = {DENSITY_METHOD, LEGACY_DENSITY_METHOD, GALAPAGOS_METHOD}
     return bool((latest['search'].get('map_location_method') in accepted
                  and valid_location(latest['search'].get('map_location')))
                 or (row.get('map_location_method') in accepted
@@ -105,6 +122,11 @@ def has_density_location(raw):
 def stored_trip_location(raw):
     row = normalize_record(raw)
     latest = max(row['versions'], key=version_key)
+    # An island-specific corrected marker takes priority over old mainland snapshots.
+    if row.get("map_location_method") == GALAPAGOS_METHOD:
+        location = valid_location(row.get("map_location"))
+        if location:
+            return location
     # A refreshed row-level marker must take priority over old version snapshots.
     if row.get('map_location_method') == DENSITY_METHOD:
         location = valid_location(row.get('map_location'))
@@ -167,4 +189,7 @@ def recover_trip_location(search):
     selected, _ = select_time_window(observations, start, end,
                                      time.fromisoformat(search.get('start_time', '00:00')),
                                      time.fromisoformat(search.get('end_time', '23:59')))
-    return busiest_location(observation_points(selected))
+    points = observation_points(selected)
+    if galapagos_trip(search):
+        return galapagos_observation_peak(points)
+    return busiest_location(points)
