@@ -259,6 +259,10 @@ def open_trip(row):
     st.session_state.geometry = json.loads(saved["geometry"]) if isinstance(saved.get("geometry"), str) and saved["geometry"] else saved.get("geometry")
     st.session_state.area_name = saved.get("area_name", "")
     st.session_state.trip_name = row["name"]
+    # Give each saved trip its own form widget identity. Reusing the generic
+    # keys could restore stale (empty) frontend widget values on navigation.
+    st.session_state["trip_name_form_" + row["id"]] = row["name"]
+    st.session_state["trip_username_form_" + row["id"]] = saved["username"]
     st.session_state.map_extra_choice = saved.get("map_extended_checks", False)
     st.session_state.saved_trip_id = row["id"]
     st.session_state.saved_search = saved
@@ -279,6 +283,8 @@ if st.session_state.page == "home":
         clear_report()
         st.session_state.trip_username = st.session_state.overview_user_filter.strip() or DEFAULT_USERNAME
         st.session_state.trip_name = ""
+        st.session_state.pop("trip_name_form_new", None)
+        st.session_state.pop("trip_username_form_new", None)
         st.session_state.trip_start = date.today() - timedelta(days=7)
         st.session_state.trip_end = date.today() - timedelta(days=1)
         st.session_state.trip_start_time = time(0, 0)
@@ -473,10 +479,25 @@ if restore_token:
 
 with st.container(border=True):
     st.subheader("Reis instellen")
-    st.text_input("Hoe heet deze trip? (verplicht)", placeholder="Bijvoorbeeld: Suriname december 2025", key='trip_name', max_chars=120)
+    # Saved-trip forms have distinct widget keys to prevent Streamlit from
+    # rehydrating empty values left by a previous report/new-trip form.
+    form_suffix = st.session_state.saved_trip_id or "new"
+    name_key = "trip_name_form_" + form_suffix
+    username_key = "trip_username_form_" + form_suffix
+    if name_key not in st.session_state:
+        st.session_state[name_key] = st.session_state.trip_name
+    if username_key not in st.session_state:
+        st.session_state[username_key] = st.session_state.trip_username
+    st.session_state.trip_name = st.text_input(
+        "Hoe heet deze trip? (verplicht)",
+        placeholder="Bijvoorbeeld: Suriname december 2025",
+        key=name_key, max_chars=120)
     user_col, from_col, to_col = st.columns([2, 1, 1])
     with user_col:
-        username = st.text_input("Openbare iNaturalist-gebruikersnaam", placeholder="Bijvoorbeeld: jouw_gebruikersnaam", key="trip_username").strip()
+        username = st.text_input("Openbare iNaturalist-gebruikersnaam",
+                                 placeholder="Bijvoorbeeld: jouw_gebruikersnaam",
+                                 key=username_key).strip()
+        st.session_state.trip_username = username
     with from_col:
         start = st.date_input("Van", min_value=EARLIEST_TRIP_DATE,
                               max_value=date.today(), key="trip_start")
