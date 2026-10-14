@@ -1,5 +1,6 @@
 """Tripreport Verkenner — afgeronde reizen met openbare iNaturalist-gegevens."""
 from datetime import date, timedelta, datetime, time
+from concurrent.futures import ThreadPoolExecutor
 import html
 import hashlib
 import json
@@ -692,6 +693,34 @@ def show_progressive_grid(current, all_species, meta, summary_slot):
     summary_slot.markdown(summary_html(all_species, meta, st.session_state.novelty), unsafe_allow_html=True)
 
 
+@st.cache_resource
+
+def pdf_executor():
+    return ThreadPoolExecutor(max_workers=2, thread_name_prefix="trip-pdf")
+
+
+@st.fragment(run_every=2)
+def show_pdf_job(pdf_key, trip_title):
+    future = st.session_state.get("pdf_future")
+    future_key = st.session_state.get("pdf_future_key")
+    if future is not None and future_key == pdf_key:
+        if not future.done():
+            st.info("PDF wordt gemaakt (foto's en kaart ophalen). Dit kan even duren…")
+            return
+        try:
+            if st.session_state.get("pdf_key") != pdf_key:
+                st.session_state.pdf_bytes = future.result()
+                st.session_state.pdf_key = pdf_key
+        except Exception as exc:
+            st.error(f"PDF maken mislukt: {exc}")
+            st.session_state.pdf_future = None
+            return
+    if st.session_state.get("pdf_key") == pdf_key and st.session_state.get("pdf_bytes"):
+        st.success("PDF is klaar.")
+        st.download_button("⬇️ PDF downloaden", st.session_state.pdf_bytes,
+                           pdf_filename(trip_title), "application/pdf", key="download_trip_pdf")
+
+
 frame = st.session_state.trip
 meta = st.session_state.query
 if frame is not None and meta:
@@ -779,18 +808,21 @@ if frame is not None and meta:
         export_version = getattr(report_pdf, 'PDF_EXPORT_VERSION', None)
         export_ready = export_version == 16
         if not export_ready:
-            st.error("De PDF-exportcode is nog verouderd. Vervang ook report_pdf.py door het bestand uit versie 16 en herstart de app.")
+            st.error("De PDF-exportcode is verouderd. Controleer report_pdf.py.")
         pdf_key = (export_version, meta.get('calculated_at'), meta["username"], meta["start"], meta["end"], meta.get("start_time"), meta.get("end_time"), meta["geometry"], sort_by, trip_title)
-        if st.button("📄 PDF van volledig overzicht maken", disabled=not export_ready):
-            with st.spinner("PDF met heatmap en je eigen foto's maken…"):
-                try:
-                    st.session_state.pdf_bytes = make_trip_pdf(ordered, {**meta, 'trip_name':trip_title}, st.session_state.novelty)
-                    st.session_state.pdf_key = pdf_key
-                except Exception as exc:
-                    st.error(f"De PDF kon niet worden gemaakt: {exc}")
-        if export_ready and st.session_state.get("pdf_bytes") and st.session_state.get("pdf_key") == pdf_key:
-            st.download_button("⬇️ PDF downloaden", st.session_state.pdf_bytes,
-                               pdf_filename(trip_title), "application/pdf")
+        pending = st.session_state.get("pdf_future")
+        busy = pending is not None and not pending.done()
+        if st.button("📄 PDF van volledig overzicht maken", disabled=not export_ready or busy, key="create_trip_pdf"):
+            # Never run network photo downloads on Streamlit's UI thread.
+            # Snapshot mutable inputs before handing them to a worker.
+            st.session_state.pdf_bytes = None
+            st.session_state.pdf_key = None
+            st.session_state.pdf_future_key = pdf_key
+            st.session_state.pdf_future = pdf_executor().submit(
+                make_trip_pdf, ordered.copy(deep=True), {**meta, 'trip_name': trip_title},
+                {k: dict(v) for k, v in st.session_state.novelty.items()})
+        show_pdf_job(pdf_key, trip_title)
+
     unclassified = meta.get('unidentified_records') or []
     if unclassified:
         st.subheader(f"Nog niet op soort geïdentificeerd ({len(unclassified):,} waarnemingen)")
