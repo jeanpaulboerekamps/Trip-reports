@@ -25,12 +25,12 @@ function mergeRecord(old, incoming) {
     (a.calculated_at ? Date.parse(a.calculated_at) : -Infinity) -
     (b.calculated_at ? Date.parse(b.calculated_at) : -Infinity));
   const latest = ordered[ordered.length - 1];
-  return {...old, ...incoming, versions: ordered, search: latest.search, summary: latest.summary};
+  return {...old, ...incoming, name: old.name || incoming.name, versions: ordered, search: latest.search, summary: latest.summary};
 }
-function publish(nonce, records, error = "") {
+function publish(nonce, records, error = "", diagnostic = {}) {
   let last_report = localStorage.getItem(REPORT_KEY) || "";
   if (!/^[a-f0-9]{32}$/.test(last_report)) last_report = "";
-  send("streamlit:setComponentValue", {dataType:"json", value:{nonce, records, error, last_report}});
+  send("streamlit:setComponentValue", {dataType:"json", value:{nonce, records, error, last_report, diagnostic}});
 }
 window.addEventListener("message", event => {
   if (event.data.type !== "streamlit:render") return;
@@ -38,6 +38,7 @@ window.addEventListener("message", event => {
   const changed = active_report && active_report !== lastActive;
   if (nonce === lastNonce && !changed) return;
   lastNonce = nonce;
+  let diagnostic = {op, nonce, received: true, matched: null, before: null, after: null, count: null};
   try {
     if (active_report && /^[a-f0-9]{32}$/.test(active_report)) {
       localStorage.setItem(REPORT_KEY, active_report);
@@ -53,9 +54,12 @@ window.addEventListener("message", event => {
         throw new Error("Geef de trip een naam van maximaal 120 tekens.");
       }
       const row = records.find(x => x.id === trip_id);
+      diagnostic.matched = !!row;
+      diagnostic.before = row ? row.name : null;
       if (!row) throw new Error("Deze trip bestaat niet meer.");
       row.name = name.trim();
       localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+      diagnostic.after = read().find(x => x.id === trip_id)?.name || null;
     } else if (op === "delete") {
       records = records.filter(x => x.id !== trip_id);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
@@ -65,7 +69,7 @@ window.addEventListener("message", event => {
         if (row && Array.isArray(item.map_location) && item.map_location.length === 2 &&
             item.map_location.every(Number.isFinite) && Math.abs(item.map_location[0]) <= 90 && Math.abs(item.map_location[1]) <= 180) {
           row.map_location = item.map_location;
-          if (["density-25km-v1", "cluster-180km-peak-25km-v2", "galapagos-observation-peak-v1"].includes(item.map_location_method)) row.map_location_method = item.map_location_method;
+          if (["density-25km-v1", "cluster-180km-peak-25km-v2", "galapagos-observation-peak-v1", "ebird-most-species-checklist-v1"].includes(item.map_location_method)) row.map_location_method = item.map_location_method;
         }
       });
       localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
@@ -79,9 +83,11 @@ window.addEventListener("message", event => {
       records = [...byId.values()];
       localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
     }
-    publish(nonce, records);
+    diagnostic.count = records.length;
+    publish(nonce, records, "", diagnostic);
   } catch (error) {
-    publish(nonce, [], String(error.message || error));
+    diagnostic.failure = String(error.message || error);
+    publish(nonce, [], String(error.message || error), diagnostic);
   }
 });
 send("streamlit:componentReady", {apiVersion:1});
