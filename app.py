@@ -164,10 +164,13 @@ if st.session_state.page == 'report' and restore_token and st.session_state.get(
                                           else settings[6])
         st.session_state.restored_form_token = restore_token
 if (isinstance(storage_event, dict) and storage_event.get("nonce") != st.session_state.last_storage_nonce
-        and (action.get("op") == "list" or storage_event.get("nonce") == action.get("nonce"))):
+        and storage_event.get("nonce") == action.get("nonce")):
     st.session_state.last_storage_nonce = storage_event.get("nonce")
     if storage_event.get("error"):
         st.session_state.storage_notice = "Opslag in deze browser is mislukt: " + storage_event["error"]
+        st.session_state.storage_action = {"op": "list", "nonce": str(uuid4())}
+        st.error(st.session_state.storage_notice)
+        st.stop()
     else:
         try:
             st.session_state.saved_rows = validate_import(json.dumps(storage_event.get("records", [])))
@@ -178,6 +181,10 @@ if (isinstance(storage_event, dict) and storage_event.get("nonce") != st.session
         elif action.get("op") == "import":
             st.session_state.storage_notice = "Trips zijn geïmporteerd."
         elif action.get("op") == "rename":
+            confirmed = next((r for r in st.session_state.saved_rows if r["id"] == action.get("trip_id")), None)
+            if confirmed is None or confirmed["name"] != action["name"]:
+                st.error("De naamswijziging is niet bevestigd door de browseropslag.")
+                st.stop()
             st.session_state.storage_notice = "Tripnaam is gewijzigd en opgeslagen."
             if st.session_state.saved_trip_id == action.get("trip_id"):
                 st.session_state.trip_name = action["name"]
@@ -344,12 +351,6 @@ if st.session_state.page == "home":
                     renamed = rename_record(row, new_name)
                     st.session_state.storage_action = {"op": "rename", "nonce": str(uuid4()),
                                                        "trip_id": row["id"], "name": renamed["name"]}
-                    # Update the displayed record immediately. The browser component
-                    # persists the same change and confirms it on the next render.
-                    st.session_state.saved_rows = [
-                        renamed if item["id"] == row["id"] else item
-                        for item in st.session_state.saved_rows
-                    ]
                     st.session_state.storage_notice = "Nieuwe naam wordt opgeslagen…"
                     st.rerun()
                 except ValueError as exc:
