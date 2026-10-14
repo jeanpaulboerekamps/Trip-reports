@@ -11,7 +11,7 @@ from uuid import uuid4
 import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
-from streamlit.components.v1 import declare_component
+from streamlit.components.v1 import declare_component, html as component_html
 
 from report_pdf import make_trip_pdf, pdf_trip_name, pdf_filename
 import report_pdf
@@ -91,8 +91,9 @@ def cached_trip_location(search_json):
 
 @st.cache_data(show_spinner=False, max_entries=12)
 def cached_overview_map(map_rows_json):
-    """Build the overview only when its visible marker data changes."""
-    return overview_map(json.loads(map_rows_json))
+    """Render a passive Leaflet map once per trip dataset; no Streamlit callbacks."""
+    world, missing = overview_map(json.loads(map_rows_json))
+    return world.get_root().render(), missing
 
 
 @st.cache_resource
@@ -363,8 +364,10 @@ if st.session_state.page == "home":
     # Use original records for normalization; the cache key is derived from
     # the complete records so that updates to popup counts also invalidate it.
     map_payload = json.dumps(user_rows, sort_keys=True, default=str)
-    world, missing = cached_overview_map(map_payload)
-    st_folium(world, height=430, use_container_width=True, returned_objects=[], key="trips_overview_map")
+    map_html, missing = cached_overview_map(map_payload)
+    # Unlike st_folium, this display-only map cannot trigger Streamlit reruns
+    # when Leaflet loads, pans, zooms or opens a popup.
+    component_html(map_html, height=430, scrolling=False)
     if location_errors and not missing:
         st.warning("De drukste locatie kon nog niet worden bepaald voor: " + ", ".join(location_errors) + ". De eerdere kaartlocatie blijft zichtbaar.")
         if st.button("Kaartlocaties opnieuw ophalen"):
