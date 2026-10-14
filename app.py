@@ -178,15 +178,18 @@ if (isinstance(storage_event, dict) and storage_event.get("nonce") != st.session
         elif action.get("op") == "import":
             st.session_state.storage_notice = "Trips zijn geïmporteerd."
         elif action.get("op") == "rename":
-            st.session_state.storage_notice = "Tripnaam is gewijzigd."
+            st.session_state.storage_notice = "Tripnaam is gewijzigd en opgeslagen."
             if st.session_state.saved_trip_id == action.get("trip_id"):
                 st.session_state.trip_name = action["name"]
+            st.session_state.rename_confirmed = True
         elif action.get("op") == "delete":
             st.session_state.storage_notice = "Trip en alle bewaarde versies zijn verwijderd."
             if st.session_state.saved_trip_id == action.get("trip_id"):
                 st.session_state.saved_trip_id = None
                 st.session_state.saved_search = None
     st.session_state.storage_action = {"op": "list", "nonce": str(uuid4())}
+    if st.session_state.pop("rename_confirmed", False):
+        st.rerun()
 
 def clear_report():
     for key in ("report_job", "loaded_report_job", "restored_form_token", "pdf_bytes", "pdf_key"):
@@ -341,6 +344,13 @@ if st.session_state.page == "home":
                     renamed = rename_record(row, new_name)
                     st.session_state.storage_action = {"op": "rename", "nonce": str(uuid4()),
                                                        "trip_id": row["id"], "name": renamed["name"]}
+                    # Update the displayed record immediately. The browser component
+                    # persists the same change and confirms it on the next render.
+                    st.session_state.saved_rows = [
+                        renamed if item["id"] == row["id"] else item
+                        for item in st.session_state.saved_rows
+                    ]
+                    st.session_state.storage_notice = "Nieuwe naam wordt opgeslagen…"
                     st.rerun()
                 except ValueError as exc:
                     st.error(str(exc))
