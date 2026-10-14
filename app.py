@@ -249,6 +249,7 @@ def clear_report():
 
 
 def open_trip(row):
+    """Button callback: transition before widgets/components render on rerun."""
     clear_report()
     saved = row["search"]
     load_existing_trip(st.session_state, row)
@@ -257,7 +258,8 @@ def open_trip(row):
     st.session_state.area_name = saved.get("area_name", "")
     st.session_state.map_extra_choice = saved.get("map_extended_checks", False)
     st.session_state.page = "report"
-    st.rerun()
+    # Streamlit automatically reruns after a widget callback. An explicit
+    # st.rerun() here interrupts the callback-driven navigation.
 
 
 if st.session_state.page != "home":
@@ -400,8 +402,8 @@ if st.session_state.page == "home":
                               key="rename_input_" + row["id"])
                 st.form_submit_button("Naam opslaan", on_click=submit_trip_rename, args=(row["id"],))
             recalculate_col, delete_col = st.columns(2)
-            if recalculate_col.button("Opnieuw berekenen", key="recalculate_" + row["id"], type="primary"):
-                open_trip(row)
+            recalculate_col.button("Opnieuw berekenen", key="recalculate_" + row["id"],
+                                   type="primary", on_click=open_trip, args=(row,))
             if delete_col.button("Trip verwijderen", key="delete_" + row["id"],
                                  help="Verwijdert deze trip met alle bewaarde versies uit deze browser."):
                 st.session_state.storage_action = {"op": "delete", "nonce": str(uuid4()), "trip_id": row["id"]}
