@@ -163,7 +163,8 @@ if st.session_state.page == 'report' and restore_token and st.session_state.get(
             st.session_state.trip_name = (linked["name"] if linked and same_trip(settings_search, linked["search"])
                                           else settings[6])
         st.session_state.restored_form_token = restore_token
-if isinstance(storage_event, dict) and storage_event.get("nonce") != st.session_state.last_storage_nonce:
+if (isinstance(storage_event, dict) and storage_event.get("nonce") != st.session_state.last_storage_nonce
+        and (action.get("op") == "list" or storage_event.get("nonce") == action.get("nonce"))):
     st.session_state.last_storage_nonce = storage_event.get("nonce")
     if storage_event.get("error"):
         st.session_state.storage_notice = "Opslag in deze browser is mislukt: " + storage_event["error"]
@@ -185,7 +186,7 @@ if isinstance(storage_event, dict) and storage_event.get("nonce") != st.session_
             if st.session_state.saved_trip_id == action.get("trip_id"):
                 st.session_state.saved_trip_id = None
                 st.session_state.saved_search = None
-    st.session_state.storage_action = {"op": "list", "nonce": "initial"}
+    st.session_state.storage_action = {"op": "list", "nonce": str(uuid4())}
 
 def clear_report():
     for key in ("report_job", "loaded_report_job", "restored_form_token", "pdf_bytes", "pdf_key"):
@@ -215,8 +216,8 @@ def open_trip(row):
     st.rerun()
 
 
-st.title("🧭 Tripreport Verkenner")
-st.caption("Versie 19 · Zwaartepunt op de kaart, tripnaam wijzigen en sorteren")
+if st.session_state.page != "home":
+    st.title("🧭 Tripreport Verkenner")
 if st.session_state.storage_notice:
     st.info(st.session_state.storage_notice)
     st.session_state.storage_notice = ""
@@ -240,15 +241,19 @@ if st.session_state.page == "home":
         st.session_state.map_extra_choice = False
         st.session_state.page = "report"
         st.rerun()
-    selected_user = st.text_input("iNaturalist-gebruikersnaam", value=st.session_state.overview_user_filter,
-                                  key="overview_username_v18", on_change=remember_overview_username).strip().casefold()
+    selected_user = st.session_state.overview_user_filter.strip().casefold()
     user_rows = sorted([row for row in st.session_state.saved_rows
                         if row["username"].strip().casefold() == selected_user],
                        key=lambda row: row["start_date"], reverse=True)
-    st.caption("Je bewaarde trips in deze browser. Totalen zijn van de meest recente berekening. Berekentijden: Europe/Amsterdam.")
     st.subheader("Trips op de kaart")
-    st.caption("De marker staat op de eBird-checklist met de meeste verschillende vogelsoorten tijdens de trip. Zonder eBird-coördinaten gebruiken we de bestaande iNaturalist-locatie.")
-    ebird_index = load_ebird_index()
+    # The eBird import is rendered below the map; its saved data is already in session state.
+    ebird_index = None
+    if st.session_state.get("ebird_data"):
+        from ebird_data import EbirdIndex
+        try:
+            ebird_index = EbirdIndex(st.session_state.ebird_data)
+        except (ValueError, KeyError, TypeError):
+            pass
     ebird_locations = {}
     ebird_changed = set()
     if ebird_index is not None:
@@ -305,6 +310,15 @@ if st.session_state.page == "home":
         if st.button("Kaartlocaties opnieuw ophalen"):
             cached_trip_location.clear()
             st.rerun()
+    with st.container():
+        user_col, import_col = st.columns([1, 2])
+        with user_col:
+            st.text_input("iNaturalist-gebruikersnaam", value=st.session_state.overview_user_filter,
+                          key="overview_username_v18", on_change=remember_overview_username)
+        with import_col:
+            imported_index = load_ebird_index()
+            if imported_index is not None and ebird_index is None:
+                ebird_index = imported_index
     needle = st.text_input("Zoek op tripnaam, gebied of datum", key="trip_overview_search")
     rows = [row for row in user_rows if matches_search(row, needle)]
     st.subheader(f"Tripoverzicht ({len(rows)})")

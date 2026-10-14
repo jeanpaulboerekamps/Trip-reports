@@ -37,7 +37,6 @@ def load_ebird_index():
         if event.get('data'):
             st.session_state.ebird_data = event['data']
     with st.expander('eBird-export importeren of vernieuwen', expanded=not bool(st.session_state.get('ebird_data'))):
-        st.caption('Upload MyEBirdData.csv of de originele eBird-zip. De import wordt in deze browser bewaard en vervangt de vorige eBird-import.')
         with st.form('ebird_import'):
             upload = st.file_uploader('Persoonlijke eBird-export', type=['zip', 'csv'], key='ebird_export_upload')
             submit = st.form_submit_button('eBird-export laden')
@@ -66,9 +65,6 @@ def load_ebird_index():
     except (ValueError, KeyError, TypeError) as exc:
         st.error('De bewaarde eBird-import kon niet worden gelezen. Importeer de originele export opnieuw.')
         return None
-    st.caption(f"Import: {len(data['observations']):,} waarnemingen op {len(data['checklists']):,} checklists; {data['first_date']} t/m {data['last_date']}.".replace(',', '.'))
-    st.caption('Waarnemingen = vogelregels op checklists. Ondersoorten worden op soort samengevoegd; onbepaalde vogels, hybriden en domestic types staan apart. Nieuw voor mij = eerste datum van die soort in deze export valt binnen de trip.')
-    st.caption('eBird gebruikt uitsluitend de tripdatums; gebied en tijdstip tellen niet mee. De kaart gebruikt de checklist met de meeste soorten als de export coördinaten bevat. Bij een oudere import: importeer de originele eBird-export opnieuw om kaartlocaties beschikbaar te maken.')
     return index
 
 
