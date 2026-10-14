@@ -336,18 +336,24 @@ if st.session_state.page == "home":
         return not has_density_location(row)
 
     missing_rows = [row for row in user_rows if row["id"] not in ebird_locations and needs_location_refresh(row)]
+    # Do not make synchronous iNaturalist API requests during the initial page load.
+    # They previously blocked the map and could cause multiple visible reruns.
+    # Existing saved markers are always displayed immediately.
     if missing_rows:
-        with st.spinner("Plaatsen met de meeste waarnemingen bepalen…"):
-            for row in missing_rows:
-                try:
-                    location = cached_trip_location(json.dumps({**row["search"], "trip_name": row["name"]}, sort_keys=True))
-                    if location:
-                        row["map_location"] = location
-                        method = GALAPAGOS_METHOD if is_target_trip(row) else DENSITY_METHOD
-                        row["map_location_method"] = method
-                        recovered.append({"id": row["id"], "map_location": location, "map_location_method": method})
-                except Exception:
-                    location_errors.append(row["name"])
+        with st.expander(f"Kaartlocaties aanvullen ({len(missing_rows)} trips)", expanded=False):
+            st.caption("Alleen nodig voor trips zonder berekende kaartlocatie. Bestaande locaties blijven behouden.")
+            if st.button("Ontbrekende kaartlocaties berekenen", key="recover_missing_map_locations"):
+                with st.spinner("Ontbrekende kaartlocaties berekenen…"):
+                    for row in missing_rows:
+                        try:
+                            location = cached_trip_location(json.dumps({**row["search"], "trip_name": row["name"]}, sort_keys=True))
+                            if location:
+                                row["map_location"] = location
+                                method = GALAPAGOS_METHOD if is_target_trip(row) else DENSITY_METHOD
+                                row["map_location_method"] = method
+                                recovered.append({"id": row["id"], "map_location": location, "map_location_method": method})
+                        except Exception:
+                            location_errors.append(row["name"])
     if recovered and action.get("op") == "list":
         st.session_state.storage_action = {"op": "locations", "nonce": str(uuid4()), "locations": recovered}
         st.rerun()
@@ -373,17 +379,6 @@ if st.session_state.page == "home":
             imported_index = load_ebird_index()
             if imported_index is not None and ebird_index is None:
                 ebird_index = imported_index
-    with st.expander("Diagnose naamswijziging (tijdelijk)", expanded=True):
-        st.caption("Alleen technische status; bestaande trips worden niet gewijzigd door deze diagnose.")
-        current = st.session_state.storage_action
-        st.write("Huidige opslagopdracht:", current.get("op"))
-        if current.get("op") == "rename":
-            st.write("Doelnaam:", current.get("name"))
-            st.write("Opdracht-ID:", current.get("nonce"))
-        if st.session_state.get("rename_diagnostic"):
-            st.json(st.session_state.rename_diagnostic)
-        else:
-            st.info("Nog geen reactie op een naamswijziging ontvangen.")
     needle = st.text_input("Zoek op tripnaam, gebied of datum", key="trip_overview_search")
     rows = [row for row in user_rows if matches_search(row, needle)]
     st.subheader(f"Tripoverzicht ({len(rows)})")
