@@ -89,6 +89,12 @@ def cached_trip_location(search_json):
     return recover_trip_location(json.loads(search_json))
 
 
+@st.cache_data(show_spinner=False, max_entries=12)
+def cached_overview_map(map_rows_json):
+    """Build the overview only when its visible marker data changes."""
+    return overview_map(json.loads(map_rows_json))
+
+
 @st.cache_resource
 def report_jobs():
     return ReportJobs()
@@ -345,9 +351,14 @@ if st.session_state.page == "home":
     if recovered and action.get("op") == "list":
         st.session_state.storage_action = {"op": "locations", "nonce": str(uuid4()), "locations": recovered}
         st.rerun()
-    world, missing = overview_map(user_rows)
-    map_signature = hashlib.sha256(json.dumps([(row["id"], row["name"], stored_trip_location(row)) for row in user_rows]).encode()).hexdigest()[:16]
-    st_folium(world, height=430, use_container_width=True, returned_objects=[], key="trips_overview_map_" + map_signature)
+    # The Folium component has a permanent key: changing its key with the
+    # markers forces Streamlit to destroy and recreate the Leaflet iframe.
+    # Cache the map using only the data displayed in its markers/popups.
+    # Use original records for normalization; the cache key is derived from
+    # the complete records so that updates to popup counts also invalidate it.
+    map_payload = json.dumps(user_rows, sort_keys=True, default=str)
+    world, missing = cached_overview_map(map_payload)
+    st_folium(world, height=430, use_container_width=True, returned_objects=[], key="trips_overview_map")
     if location_errors and not missing:
         st.warning("De drukste locatie kon nog niet worden bepaald voor: " + ", ".join(location_errors) + ". De eerdere kaartlocatie blijft zichtbaar.")
         if st.button("Kaartlocaties opnieuw ophalen"):
