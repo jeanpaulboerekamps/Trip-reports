@@ -106,6 +106,7 @@ if isinstance(storage_event, dict) and isinstance(storage_event.get("diagnostic"
     d = storage_event["diagnostic"]
     if d.get("op") == "rename":
         st.session_state.rename_diagnostic = {
+            "phase": "antwoord uit browser ontvangen",
             "received_nonce": d.get("nonce"),
             "expected_nonce": action.get("nonce"),
             "browser_received": d.get("received"),
@@ -125,6 +126,25 @@ trip_table_dir = Path(tempfile.gettempdir()) / "tripreport-responsive-table-v26"
 trip_table_dir.mkdir(parents=True, exist_ok=True)
 (trip_table_dir / "index.html").write_text(_TRIP_TABLE_HTML, encoding="utf-8")
 responsive_trip_table = declare_component("trip_responsive_table", path=str(trip_table_dir))
+
+
+def submit_trip_rename(trip_id):
+    """Form callback runs BEFORE the browser component is rendered on this rerun."""
+    new_name = st.session_state.get("rename_input_" + trip_id, "").strip()
+    try:
+        row = next((r for r in st.session_state.saved_rows if r["id"] == trip_id), None)
+        if row is None:
+            raise ValueError("De geselecteerde trip is niet meer beschikbaar.")
+        renamed = rename_record(row, new_name)
+        nonce = str(uuid4())
+        st.session_state.storage_action = {"op": "rename", "nonce": nonce,
+                                           "trip_id": trip_id, "name": renamed["name"]}
+        st.session_state.rename_diagnostic = {"phase": "opdracht gemaakt in formuliercallback",
+                                                "expected_nonce": nonce, "trip_id": trip_id,
+                                                "requested_name": renamed["name"]}
+    except ValueError as exc:
+        st.session_state.rename_diagnostic = {"phase": "formulier afgewezen", "error": str(exc)}
+        st.session_state.storage_notice = str(exc)
 
 
 def overview_selection(rows, key, ebird_index=None):
@@ -371,17 +391,9 @@ if st.session_state.page == "home":
         if row is not None:
             st.subheader(row["name"])
             with st.form("rename_trip_" + row["id"]):
-                new_name = st.text_input("Tripnaam wijzigen", value=row["name"], max_chars=120)
-                rename_now = st.form_submit_button("Naam opslaan")
-            if rename_now:
-                try:
-                    renamed = rename_record(row, new_name)
-                    st.session_state.storage_action = {"op": "rename", "nonce": str(uuid4()),
-                                                       "trip_id": row["id"], "name": renamed["name"]}
-                    st.session_state.storage_notice = "Nieuwe naam wordt opgeslagen…"
-                    st.rerun()
-                except ValueError as exc:
-                    st.error(str(exc))
+                st.text_input("Tripnaam wijzigen", value=row["name"], max_chars=120,
+                              key="rename_input_" + row["id"])
+                st.form_submit_button("Naam opslaan", on_click=submit_trip_rename, args=(row["id"],))
             recalculate_col, delete_col = st.columns(2)
             if recalculate_col.button("Opnieuw berekenen", key="recalculate_" + row["id"], type="primary"):
                 open_trip(row)
