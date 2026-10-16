@@ -41,3 +41,15 @@ def sync_form_values(state):
     name_key, username_key = prepare_form_widgets(state)
     state['trip_name'] = state[name_key]
     state['trip_username'] = state[username_key].strip()
+
+
+def reset_new_trip(state, username=DEFAULT_USERNAME, today=None):
+    """Reset all new-trip form fields together, including Streamlit widget keys."""
+    from datetime import timedelta
+    today = today or date.today()
+    for key in ('trip_name_form_new', 'trip_username_form_new'):
+        state.pop(key, None)
+    state.update(trip_name='', trip_username=username,
+                 trip_start=today-timedelta(days=7), trip_end=today-timedelta(days=1),
+                 trip_start_time=time(0, 0), trip_end_time=time(23, 59),
+                 saved_trip_id=None, saved_search=None)

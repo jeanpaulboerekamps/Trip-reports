@@ -42,7 +42,9 @@ def version_table(row):
 
 def overview_map(rows):
     """One marker per trip, at a point inside its latest public observation area."""
-    world = folium.Map(location=[20, 0], zoom_start=2, tiles="OpenStreetMap")
+    world = folium.Map(location=[20, 0], zoom_start=2, tiles="OpenStreetMap",
+                       zoom_control=True, prefer_canvas=True, zoom_animation=False,
+                       fade_animation=False, marker_zoom_animation=False)
     bounds = []
     missing = 0
     for raw in rows:
