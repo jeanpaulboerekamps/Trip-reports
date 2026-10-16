@@ -1,0 +1,5 @@
+<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;overflow:hidden}#map{width:100%;height:430px;border:0;display:block}</style></head><body><iframe id="map" title="Trips op de kaart" sandbox="allow-scripts allow-same-origin allow-popups"></iframe><script>
+const frame=document.getElementById("map");let previous=null;
+window.addEventListener("message",event=>{if(event.data?.type!=="streamlit:render")return;const next=event.data.args?.map_html||"";if(next!==previous){previous=next;frame.srcdoc=next;}window.parent.postMessage({isStreamlitMessage:true,type:"streamlit:setFrameHeight",height:430},"*");});
+window.parent.postMessage({isStreamlitMessage:true,type:"streamlit:componentReady",apiVersion:1},"*");window.parent.postMessage({isStreamlitMessage:true,type:"streamlit:setFrameHeight",height:430},"*");
+</script></body></html>
