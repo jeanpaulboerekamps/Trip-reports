@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import tempfile
+from time import perf_counter, time as unix_time
 from pathlib import Path
 from uuid import uuid4
 
@@ -95,14 +96,8 @@ def cached_trip_location(search_json):
 def cached_overview_map(map_rows_json):
     """Render a passive Leaflet map once per trip dataset; no Streamlit callbacks."""
     world, missing = overview_map(json.loads(map_rows_json))
-    return world.get_root().render(), missing
+    return world.get_root().render(), missing, unix_time()
 
-
-# Keep the Leaflet iframe alive across unrelated Streamlit reruns.
-overview_map_display = declare_component(
-    "trip_overview_map_persistent",
-    path=str(Path(__file__).parent / "overview_map_component"),
-)
 
 @st.cache_resource
 def report_jobs():
@@ -276,6 +271,9 @@ if st.session_state.storage_notice:
     st.session_state.storage_notice = ""
 
 if st.session_state.page == "home":
+    _map_diagnostic_run = st.session_state.get("map_diagnostic_run", 0) + 1
+    st.session_state.map_diagnostic_run = _map_diagnostic_run
+    _map_diagnostic_start = perf_counter()
     title_col, new_col = st.columns([4, 1])
     title_col.subheader("Mijn trips")
     if new_col.button("Nieuwe trip", type="primary", use_container_width=True):
@@ -359,11 +357,31 @@ if st.session_state.page == "home":
     # Cache the map using only the data displayed in its markers/popups.
     # Use original records for normalization; the cache key is derived from
     # the complete records so that updates to popup counts also invalidate it.
+    _map_diagnostic_payload_start = perf_counter()
     map_payload = json.dumps(user_rows, sort_keys=True, default=str)
-    map_html, missing = cached_overview_map(map_payload)
+    _map_diagnostic_payload_ms = (perf_counter() - _map_diagnostic_payload_start) * 1000
+    _map_diagnostic_render_start = perf_counter()
+    map_html, missing, map_generated_at = cached_overview_map(map_payload)
+    _map_diagnostic_render_ms = (perf_counter() - _map_diagnostic_render_start) * 1000
     # Unlike st_folium, this display-only map cannot trigger Streamlit reruns
     # when Leaflet loads, pans, zooms or opens a popup.
-    overview_map_display(map_html=map_html, key="trip_overview_map")
+    component_html(map_html, height=430, scrolling=False)
+    _map_diagnostic_total_ms = (perf_counter() - _map_diagnostic_start) * 1000
+    with st.expander("Kaartdiagnostiek (tijdelijk, versie 14)", expanded=False):
+        st.caption("Meet de Python-kant. Het laden van kaarttegels in Safari is hierin niet inbegrepen.")
+        st.code(
+            f"Schermopbouw nummer: {_map_diagnostic_run}\n"
+            f"Trips in kaartselectie: {len(user_rows)}\n"
+            f"Markers zonder locatie: {missing}\n"
+            f"Tijd tot kaartcomponent: {_map_diagnostic_total_ms:.0f} ms\n"
+            f"Kaartgegevens serialiseren: {_map_diagnostic_payload_ms:.1f} ms\n"
+            f"Kaart-HTML ophalen (incl. cache): {_map_diagnostic_render_ms:.1f} ms\n"
+            f"Kaart-HTML bytes: {len(map_html.encode('utf-8'))}\n"
+            f"Kaart-HTML gegenereerd om: {datetime.fromtimestamp(map_generated_at).strftime('%H:%M:%S')}\n"
+            f"Cacheleeftijd: {max(0, unix_time() - map_generated_at):.1f} sec\n"
+            f"Kaartgegevens SHA256: {hashlib.sha256(map_payload.encode()).hexdigest()[:12]}"
+        )
+        st.caption("Test: 1. Eerste keer openen; 2. Safari verversen; 3. Terug uit Nieuwe trip. Vergelijk de getallen en maak eventueel drie screenshots.")
     if location_errors and not missing:
         st.warning("De drukste locatie kon nog niet worden bepaald voor: " + ", ".join(location_errors) + ". De eerdere kaartlocatie blijft zichtbaar.")
         if st.button("Kaartlocaties opnieuw ophalen"):
