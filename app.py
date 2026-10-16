@@ -255,9 +255,21 @@ if (isinstance(storage_event, dict) and storage_event.get("nonce") != st.session
             if st.session_state.saved_trip_id == action.get("trip_id"):
                 st.session_state.saved_trip_id = None
                 st.session_state.saved_search = None
-    st.session_state.storage_action = {"op": "list", "nonce": str(uuid4())}
+    # A fresh nonce for an unchanged `list` caused an endless browser reply /
+    # Python rerun cycle. Keep the acknowledged list nonce stable. Only
+    # switch to a fresh list after a write operation has completed.
+    if action.get("op") != "list":
+        st.session_state.storage_action = {"op": "list", "nonce": str(uuid4())}
     if st.session_state.pop("rename_confirmed", False):
         st.rerun()
+
+# Wait for the first confirmed browser-storage read before rendering the
+# overview. The component above stays mounted and can still deliver its reply.
+if (st.session_state.get("page") == "home"
+        and st.session_state.last_storage_nonce is None
+        and not st.session_state.saved_rows):
+    st.info("Bewaarde trips worden geladen…")
+    st.stop()
 
 def clear_report():
     for key in ("report_job", "loaded_report_job", "restored_form_token", "pdf_bytes", "pdf_key"):
@@ -387,7 +399,7 @@ if st.session_state.page == "home":
     # when Leaflet loads, pans, zooms or opens a popup.
     component_html(map_html, height=430, scrolling=False)
     _map_diagnostic_total_ms = (perf_counter() - _map_diagnostic_start) * 1000
-    with st.expander("Kaartdiagnostiek (tijdelijk, versie 16)", expanded=False):
+    with st.expander("Kaartdiagnostiek (tijdelijk, versie 17)", expanded=False):
         st.caption("Meet de Python-kant. Het laden van kaarttegels in Safari is hierin niet inbegrepen.")
         st.code(
             f"Schermopbouw nummer: {_map_diagnostic_run}\n"

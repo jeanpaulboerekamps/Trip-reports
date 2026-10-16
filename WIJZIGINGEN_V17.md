@@ -1,0 +1,1 @@
+Versie 17: browseropslag-list nonce niet langer telkens vernieuwen bij een list-antwoord; wacht op eerste opslagantwoord voordat de overzichtskaart verschijnt. Kaart en opslagformaten ongewijzigd. Diagnostiek behouden.
