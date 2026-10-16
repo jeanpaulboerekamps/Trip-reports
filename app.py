@@ -98,6 +98,12 @@ def cached_overview_map(map_rows_json):
     return world.get_root().render(), missing
 
 
+# Keep the Leaflet iframe alive across unrelated Streamlit reruns.
+overview_map_display = declare_component(
+    "trip_overview_map_persistent",
+    path=str(Path(__file__).parent / "overview_map_component"),
+)
+
 @st.cache_resource
 def report_jobs():
     return ReportJobs()
@@ -357,7 +363,7 @@ if st.session_state.page == "home":
     map_html, missing = cached_overview_map(map_payload)
     # Unlike st_folium, this display-only map cannot trigger Streamlit reruns
     # when Leaflet loads, pans, zooms or opens a popup.
-    component_html(map_html, height=430, scrolling=False)
+    overview_map_display(map_html=map_html, key="trip_overview_map")
     if location_errors and not missing:
         st.warning("De drukste locatie kon nog niet worden bepaald voor: " + ", ".join(location_errors) + ". De eerdere kaartlocatie blijft zichtbaar.")
         if st.button("Kaartlocaties opnieuw ophalen"):
