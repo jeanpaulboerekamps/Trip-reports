@@ -110,8 +110,26 @@ if not (component_dir / "index.html").is_file():
     component_dir.mkdir(parents=True, exist_ok=True)
     (component_dir / "index.html").write_text(_BROWSER_COMPONENT_HTML, encoding="utf-8")
 browser_store = declare_component("trip_browser_store", path=str(component_dir))
+# Diagnose only: record each Python execution and browser-storage handshake.
+# Never trigger a rerun or write to the saved trip data from this log.
+if "startup_trace" not in st.session_state:
+    st.session_state.startup_trace = []
+_run_id = st.session_state.get("startup_run_id", 0) + 1
+st.session_state.startup_run_id = _run_id
+_run_started = perf_counter()
 action = st.session_state.storage_action
 storage_event = browser_store(**action, active_report=st.session_state.get('report_job') or st.query_params.get('report'), key="trip_browser_store")
+_event_nonce = storage_event.get("nonce") if isinstance(storage_event, dict) else None
+st.session_state.startup_trace.append({
+    "run": _run_id,
+    "page": st.session_state.get("page"),
+    "storage_op": action.get("op"),
+    "storage_response": "none" if storage_event is None else (
+        "matching" if _event_nonce == action.get("nonce") else "other"),
+    "rows_before": len(st.session_state.saved_rows),
+    "ms_to_storage": round((perf_counter() - _run_started) * 1000),
+})
+st.session_state.startup_trace = st.session_state.startup_trace[-30:]
 if isinstance(storage_event, dict) and isinstance(storage_event.get("diagnostic"), dict):
     d = storage_event["diagnostic"]
     if d.get("op") == "rename":
@@ -352,6 +370,8 @@ if st.session_state.page == "home":
     if recovered and action.get("op") == "list":
         st.session_state.storage_action = {"op": "locations", "nonce": str(uuid4()), "locations": recovered}
         st.rerun()
+    # Mark when an explicit locations write causes a rerun (no behavior change).
+    # The log above remains available in session state on the next execution.
     # The Folium component has a permanent key: changing its key with the
     # markers forces Streamlit to destroy and recreate the Leaflet iframe.
     # Cache the map using only the data displayed in its markers/popups.
@@ -367,7 +387,7 @@ if st.session_state.page == "home":
     # when Leaflet loads, pans, zooms or opens a popup.
     component_html(map_html, height=430, scrolling=False)
     _map_diagnostic_total_ms = (perf_counter() - _map_diagnostic_start) * 1000
-    with st.expander("Kaartdiagnostiek (tijdelijk, versie 15)", expanded=False):
+    with st.expander("Kaartdiagnostiek (tijdelijk, versie 16)", expanded=False):
         st.caption("Meet de Python-kant. Het laden van kaarttegels in Safari is hierin niet inbegrepen.")
         st.code(
             f"Schermopbouw nummer: {_map_diagnostic_run}\n"
@@ -381,7 +401,10 @@ if st.session_state.page == "home":
             f"Cacheleeftijd: {max(0, unix_time() - map_generated_at):.1f} sec\n"
             f"Kaartgegevens SHA256: {hashlib.sha256(map_payload.encode()).hexdigest()[:12]}"
         )
-        st.caption("Test: 1. Eerste keer openen; 2. Safari verversen; 3. Terug uit Nieuwe trip. Vergelijk de getallen en maak eventueel drie screenshots.")
+        st.caption("Python-uitvoeringen en antwoorden van de browseropslag (nieuw in v16):")
+        st.dataframe(st.session_state.startup_trace, use_container_width=True, hide_index=True)
+        st.caption("'none' betekent dat de browseropslag nog geen antwoord heeft gegeven; 'matching' betekent dat het antwoord bij de huidige opdracht hoort. Dit meet geen Safari-kaarttegels.")
+        st.caption("Test: open de app, ververs Safari en keer terug uit Nieuwe trip. Maak screenshots van deze tabel.")
     if location_errors and not missing:
         st.warning("De drukste locatie kon nog niet worden bepaald voor: " + ", ".join(location_errors) + ". De eerdere kaartlocatie blijft zichtbaar.")
         if st.button("Kaartlocaties opnieuw ophalen"):
