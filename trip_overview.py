@@ -42,9 +42,17 @@ def version_table(row):
 
 def overview_map(rows):
     """One marker per trip, at a point inside its latest public observation area."""
-    world = folium.Map(location=[20, 0], zoom_start=2, tiles="OpenStreetMap",
+    world = folium.Map(location=[20, 0], zoom_start=2, tiles=None,
                        zoom_control=True, prefer_canvas=True, zoom_animation=False,
                        fade_animation=False, marker_zoom_animation=False)
+    # Retain more tiles when moving the map, and wait until movement finishes
+    # before requesting new tiles. This limits repeated downloads/repaints
+    # on Safari without changing the underlying Leaflet/Folium component.
+    folium.TileLayer(
+        tiles="OpenStreetMap", name="OpenStreetMap",
+        keep_buffer=8, update_when_idle=True,
+        update_when_zooming=False, detect_retina=False,
+    ).add_to(world)
     bounds = []
     missing = 0
     for raw in rows:

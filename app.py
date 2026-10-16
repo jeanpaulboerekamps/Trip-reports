@@ -367,7 +367,7 @@ if st.session_state.page == "home":
     # when Leaflet loads, pans, zooms or opens a popup.
     component_html(map_html, height=430, scrolling=False)
     _map_diagnostic_total_ms = (perf_counter() - _map_diagnostic_start) * 1000
-    with st.expander("Kaartdiagnostiek (tijdelijk, versie 14)", expanded=False):
+    with st.expander("Kaartdiagnostiek (tijdelijk, versie 15)", expanded=False):
         st.caption("Meet de Python-kant. Het laden van kaarttegels in Safari is hierin niet inbegrepen.")
         st.code(
             f"Schermopbouw nummer: {_map_diagnostic_run}\n"

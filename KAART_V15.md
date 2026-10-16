@@ -1,0 +1,1 @@
+Versie 15: gebaseerd op diagnose v14. Alleen Leaflet tile-instellingen in trip_overview.py gewijzigd (keepBuffer=8, updateWhenIdle=true, updateWhenZooming=false); diagnostiek behouden. Geen nieuwe component en geen wijziging aan opslag, tijden of PDF.
