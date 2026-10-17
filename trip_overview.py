@@ -71,7 +71,6 @@ def overview_map(rows, ebird_summaries=None):
                  f"</table>Berekend: {html.escape(calculation_label(latest.get('calculated_at')))}</div>")
         folium.CircleMarker([lat, lon], radius=8, color="#205e3b", weight=2,
                             fill=True, fill_color="#3c995c", fill_opacity=0.9,
-                            tooltip=html.escape(row["name"]),
                       popup=folium.Popup(popup, max_width=320)).add_to(world)
         bounds.append([lat, lon])
     if bounds:

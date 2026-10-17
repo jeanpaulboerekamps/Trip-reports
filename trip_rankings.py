@@ -28,31 +28,49 @@ def show_rankings(rows, birds, view):
         st.info('Nog geen trips beschikbaar.')
         return
     if view == 'Trips in de tijd':
+        from datetime import date
+        import html
+        from streamlit.components.v1 import html as show_html
         st.subheader('Trips in de tijd')
-        st.caption('Nieuwste trips links. Beweeg over een staaf voor de tripnaam en alle zes kengetallen. Een ontbrekende eBird-export wordt niet als nul weergegeven.')
-        ordered = sorted(data, key=lambda x: (x['Van'], x['Tot'], x['Trip']), reverse=True)
-        plotted = []
-        for i, item in enumerate(ordered):
-            for source, key in [('iNaturalist', 'iNat soorten'), ('eBird', 'eBird soorten')]:
-                if item[key] is not None:
-                    plotted.append({**item, 'Positie': i, 'Bron': source, 'Aantal soorten': item[key],
-                                    'Label': f"{item['Van']} · {item['Trip']}"})
-        if not plotted:
-            st.info('Geen soortenaantallen beschikbaar.')
+        st.caption('Nieuwste jaren links. Scroll horizontaal door de jaren; elk blok toont de zes kerncijfers.')
+        dated = []
+        for item in data:
+            try:
+                day = date.fromisoformat(str(item['Van'])[:10])
+                dated.append((day, item))
+            except (ValueError, TypeError):
+                pass
+        if not dated:
+            st.info('Geen geldige reisdatums beschikbaar.')
             return
-        chart = alt.Chart(pd.DataFrame(plotted)).mark_bar().encode(
-            x=alt.X('Label:N', sort=[f"{x['Van']} · {x['Trip']}" for x in ordered], title='Trip (nieuwste links)',
-                    axis=alt.Axis(labelAngle=-65, labelLimit=135)),
-            xOffset=alt.XOffset('Bron:N', sort=['iNaturalist', 'eBird']),
-            y=alt.Y('Aantal soorten:Q', title='Aantal soorten'),
-            color=alt.Color('Bron:N', sort=['iNaturalist', 'eBird'],
-                            scale=alt.Scale(domain=['iNaturalist', 'eBird'], range=['#3b985e', '#438bbd'])),
-            tooltip=[alt.Tooltip('Trip:N'), alt.Tooltip('Van:N'), alt.Tooltip('Tot:N'),
-                     alt.Tooltip('iNat waarnemingen:Q'), alt.Tooltip('iNat soorten:Q'),
-                     alt.Tooltip('iNat nieuwe soorten:Q'), alt.Tooltip('eBird waarnemingen:Q'),
-                     alt.Tooltip('eBird soorten:Q'), alt.Tooltip('eBird nieuwe soorten:Q')]
-        ).properties(width=max(850, len(ordered)*35), height=400)
-        st.altair_chart(chart, use_container_width=False)
+        first_year = min(day.year for day, _ in dated)
+        last_year = max(day.year for day, _ in dated)
+        year_width = 1050
+        width = (last_year-first_year+1)*year_width
+        def esc(x): return html.escape(str(x))
+        def val(x): return '—' if x is None else esc(x)
+        years = ''.join(f'<div class="year" style="left:{(last_year-y)*year_width}px;width:{year_width}px">{y}</div>' for y in range(last_year,first_year-1,-1))
+        quarters = ''.join(f'<div class="quarter" style="left:{(last_year-y)*year_width+(4-q)*year_width/4}px">Q{q} {y}</div>' for y in range(last_year,first_year-1,-1) for q in range(4,0,-1))
+        cards=[]
+        # Overlapping dates get separate vertical lanes.
+        lanes=[]
+        for day,item in sorted(dated,key=lambda z:z[0],reverse=True):
+            fraction=(day-date(day.year,1,1)).days/(date(day.year+1,1,1)-date(day.year,1,1)).days
+            x=(last_year-day.year)*year_width+(1-fraction)*year_width
+            lane=next((i for i,limit in enumerate(lanes) if x-limit>265),len(lanes))
+            if lane==len(lanes):lanes.append(x)
+            else:lanes[lane]=x
+            y=78+lane*195
+            nat=float(item['iNat soorten'] or 0); bird=float(item['eBird soorten'] or 0)
+            peak=max(nat,bird,1)
+            rows=''.join(f'<tr><td>{label}</td><td>{val(item[a])}</td><td>{val(item[b])}</td></tr>' for label,a,b in [('Waarnemingen','iNat waarnemingen','eBird waarnemingen'),('Soorten','iNat soorten','eBird soorten'),('Nieuwe soorten','iNat nieuwe soorten','eBird nieuwe soorten')])
+            cards.append(f'<div class="trip" style="left:{x}px;top:{y}px"><strong>{esc(item["Trip"])}</strong><small>{esc(item["Van"])} t/m {esc(item["Tot"])}</small><div class="bar nat" style="width:{nat/peak*100:.1f}%"></div><div class="bar bird" style="width:{bird/peak*100:.1f}%"></div><table><tr><th></th><th>iNaturalist</th><th>eBird</th></tr>{rows}</table></div>')
+        height=max(410, 120+len(lanes)*195)
+        markup=f'''<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>
+        body{{font:13px Arial,sans-serif;margin:0;color:#252525}}.scroll{{overflow-x:auto;overflow-y:auto;max-height:670px;border:1px solid #ddd;border-radius:9px}}.canvas{{position:relative;width:{width+300}px;height:{height}px;background:repeating-linear-gradient(90deg,#fff 0px,#fff 261px,#edf0f2 262px,#fff 263px)}}
+        .year{{position:absolute;top:8px;font-size:17px;font-weight:bold;border-bottom:2px solid #aaa;padding:3px 8px;box-sizing:border-box}}.quarter{{position:absolute;top:43px;color:#777}}.trip{{position:absolute;width:250px;box-sizing:border-box;background:white;border:1px solid #d6d9df;border-radius:8px;padding:9px;box-shadow:0 2px 5px #0002}}strong{{display:block;font-size:12px;line-height:1.2}}small{{display:block;color:#777;margin:4px 0}}.bar{{height:7px;border-radius:3px;margin:3px 0}}.nat{{background:#3b985e}}.bird{{background:#438bbd}}table{{width:100%;font-size:11px;margin-top:5px;border-collapse:collapse}}td:not(:first-child),th:not(:first-child){{text-align:right}}td{{padding:2px 0}}
+        </style></head><body><div class="scroll"><div class="canvas">{years}{quarters}{''.join(cards)}</div></div></body></html>'''
+        show_html(markup,height=min(700,height+20),scrolling=False)
         return
     metrics = {
         'Top trips – soorten iNaturalist': 'iNat soorten',
@@ -68,6 +86,12 @@ def show_rankings(rows, birds, view):
     if not eligible:
         st.info('Geen eBird-gegevens beschikbaar. Importeer je eBird-export onderaan de pagina.')
         return
+    if metric != 'iNat onbekend tot soort':
+        medals = ['🥇', '🥈', '🥉']
+        for i, item in enumerate(eligible[:10]):
+            marker = medals[i] if i < 3 else f'**{i+1}.**'
+            st.markdown(f"{marker} **{item['Trip']}** — {item[metric]:,} soorten".replace(',','.'))
+        st.caption('Volledige ranglijst hieronder')
     table = pd.DataFrame(eligible)
     table.insert(0, 'Plaats', range(1, len(table)+1))
     order = ['Plaats', 'Trip', metric, 'Van', 'Tot', 'iNat waarnemingen', 'iNat soorten',

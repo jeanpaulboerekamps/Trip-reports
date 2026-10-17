@@ -402,17 +402,14 @@ if st.session_state.page == "home":
         if st.button("Kaartlocaties opnieuw ophalen"):
             cached_trip_location.clear()
             st.rerun()
-    with st.container():
-        user_col, import_col = st.columns([1, 2])
-        with user_col:
-            st.text_input("iNaturalist-gebruikersnaam", value=st.session_state.overview_user_filter,
-                          key="overview_username_v18", on_change=remember_overview_username)
-
-    view = st.selectbox("Kies overzicht", [
+    choices = [
         "Trip-overzicht", "Trips in de tijd", "Top trips – soorten iNaturalist",
         "Top trips – soorten eBird", "Top trips – nieuwe soorten iNaturalist",
         "Top trips – nieuwe soorten eBird", "Top trips – onbekend tot soort iNaturalist"
-    ], key="trip_overview_mode")
+    ]
+    st.markdown("#### Kies een overzicht")
+    view = st.radio("Overzichten", ["Geen selectie"] + choices, index=0,
+                    key="trip_overview_mode_v21", label_visibility="collapsed")
     if view == "Trip-overzicht":
         needle = st.text_input("Zoek op tripnaam, gebied of datum", key="trip_overview_search")
         rows = [row for row in user_rows if matches_search(row, needle)]
@@ -450,7 +447,7 @@ if st.session_state.page == "home":
                 st.caption("Kies een rij in de tabel om de trip opnieuw te berekenen, te verwijderen of de versies te bekijken.")
         else:
             st.info("Geen bewaarde trips voor deze selectie. Maak een nieuwe trip of importeer je reservekopie.")
-    else:
+    elif view != "Geen selectie":
         from trip_rankings import show_rankings
         show_rankings(user_rows, bird_summaries, view)
     previous_token = st.session_state.get("report_job") or st.session_state.previous_report_token
@@ -460,6 +457,9 @@ if st.session_state.page == "home":
             st.session_state.page = "report"
             st.query_params["report"] = previous_token
             st.rerun()
+    st.divider()
+    st.text_input("iNaturalist-gebruikersnaam", value=st.session_state.overview_user_filter,
+                  key="overview_username_v18", on_change=remember_overview_username)
     render_ebird_import()
     with st.expander("Reservekopie downloaden of importeren"):
         st.caption("De reservekopie bevat alle gebruikers, trips en bewaarde versies in deze browser.")
