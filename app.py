@@ -320,14 +320,9 @@ if st.session_state.page == "home":
                         if row["username"].strip().casefold() == selected_user],
                        key=lambda row: row["start_date"], reverse=True)
     st.subheader("Trips op de kaart")
-    # The eBird import is rendered below the map; its saved data is already in session state.
-    ebird_index = None
-    if st.session_state.get("ebird_data"):
-        from ebird_data import EbirdIndex
-        try:
-            ebird_index = EbirdIndex(st.session_state.ebird_data)
-        except (ValueError, KeyError, TypeError):
-            pass
+    # Read the browser-persisted eBird export before building the map.
+    # The loader's UI is displayed here so restored data is available to popups.
+    ebird_index = load_ebird_index()
     ebird_locations = {}
     ebird_changed = set()
     if ebird_index is not None:
@@ -431,9 +426,7 @@ if st.session_state.page == "home":
             st.text_input("iNaturalist-gebruikersnaam", value=st.session_state.overview_user_filter,
                           key="overview_username_v18", on_change=remember_overview_username)
         with import_col:
-            imported_index = load_ebird_index()
-            if imported_index is not None and ebird_index is None:
-                ebird_index = imported_index
+            st.caption("eBird-import staat boven de kaart; de gegevens worden ook in de kaartpop-ups gebruikt.")
     needle = st.text_input("Zoek op tripnaam, gebied of datum", key="trip_overview_search")
     rows = [row for row in user_rows if matches_search(row, needle)]
     st.subheader(f"Tripoverzicht ({len(rows)})")
