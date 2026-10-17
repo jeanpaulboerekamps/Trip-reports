@@ -113,21 +113,29 @@ def show_rankings(rows, birds, view):
         import html
         medals = ['🥇', '🥈', '🥉']
         top_items = []
+        # Show all three figures from the selected source, with the ranking
+        # metric first. Never mix eBird and iNaturalist figures in one ranking.
+        display_cols = [metric] + [col for col in source_cols if col != metric]
+        labels = {'iNat waarnemingen': 'Waarn.', 'iNat soorten': 'Soorten',
+                  'iNat nieuwe soorten': 'Nieuw', 'eBird waarnemingen': 'Waarn.',
+                  'eBird soorten': 'Soorten', 'eBird nieuwe soorten': 'Nieuw'}
+        header = '<div class="rank-row rank-header"><span></span><span>Trip</span>' + ''.join(
+            '<span>' + labels[col] + '</span>' for col in display_cols) + '</div>'
         for i, item in enumerate(eligible[:10]):
             number = medals[i] if i < 3 else f'{i+1}.'
-            count = f'{item[metric]:,}'.replace(',', '.')
-            top_items.append(
-                '<div class="rank-row"><span class="rank-number">'
-                + number + '</span><span class="rank-name">'
-                + html.escape(str(item['Trip'])) + '</span><strong>'
-                + count + '</strong></div>'
-            )
+            values = ''.join('<span class="rank-value' + (' rank-primary' if col == metric else '') + '">' +
+                             ('—' if item[col] is None else f'{item[col]:,}'.replace(',', '.')) + '</span>'
+                             for col in display_cols)
+            top_items.append('<div class="rank-row"><span class="rank-number">' + number +
+                             '</span><span class="rank-name">' + html.escape(str(item['Trip'])) +
+                             '</span>' + values + '</div>')
         st.markdown('''<style>
         .rank-frame{border:1px solid #d6dbe1;border-radius:12px;padding:10px 15px;margin:8px 0 20px;background:var(--secondary-background-color, #f8f9fb)}
-        .rank-row{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:8px;align-items:center;padding:9px 5px;border-bottom:1px solid #d9dfe4;font-size:14px}
-        .rank-row:last-child{border-bottom:0}.rank-number{font-weight:700;font-size:17px}.rank-name{font-weight:600;overflow-wrap:anywhere}.rank-row strong{white-space:nowrap;font-variant-numeric:tabular-nums}
+        .rank-row{display:grid;grid-template-columns:34px minmax(0,1fr) repeat(3,minmax(60px,85px));gap:8px;align-items:center;padding:9px 5px;border-bottom:1px solid #d9dfe4;font-size:14px}
+        .rank-row:last-child{border-bottom:0}.rank-number{font-weight:700;font-size:17px}.rank-name{font-weight:600;overflow-wrap:anywhere}.rank-value{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.rank-primary{font-weight:750}.rank-header{color:#777;font-size:12px;font-weight:600;padding-top:3px;padding-bottom:6px}.rank-header span:nth-child(n+3){text-align:right}
+        @media(max-width:600px){.rank-frame{padding:7px}.rank-row{grid-template-columns:25px minmax(0,1fr) repeat(3,minmax(42px,65px));gap:4px;font-size:12px;padding:8px 2px}.rank-number{font-size:14px}.rank-header{font-size:10px}}
         </style>''', unsafe_allow_html=True)
-        st.markdown('<div class="rank-frame">' + ''.join(top_items) + '</div>', unsafe_allow_html=True)
+        st.markdown('<div class="rank-frame">' + header + ''.join(top_items) + '</div>', unsafe_allow_html=True)
         remaining = eligible[10:]
         start_rank = 11
         if remaining:
@@ -135,6 +143,6 @@ def show_rankings(rows, birds, view):
     if remaining:
         table = pd.DataFrame(remaining)
         table.insert(0, 'Plaats', range(start_rank, start_rank+len(table)))
-        order = list(dict.fromkeys(['Plaats', 'Trip', metric, 'Van', 'Tot'] + source_cols))
+        order = list(dict.fromkeys(['Plaats', 'Trip', metric] + source_cols))
         st.dataframe(table[order], hide_index=True, use_container_width=True,
                      height=min(680, 40 + 35*len(table)))
