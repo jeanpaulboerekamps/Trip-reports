@@ -40,21 +40,14 @@ def version_table(row):
             for v in sorted(normalize_record(row)["versions"], key=version_key, reverse=True)]
 
 
-def overview_map(rows):
+def overview_map(rows, ebird_summaries=None):
     """One marker per trip, at a point inside its latest public observation area."""
-    world = folium.Map(location=[20, 0], zoom_start=2, tiles=None,
+    world = folium.Map(location=[20, 0], zoom_start=2, tiles="OpenStreetMap",
                        zoom_control=True, prefer_canvas=True, zoom_animation=False,
                        fade_animation=False, marker_zoom_animation=False)
-    # Retain more tiles when moving the map, and wait until movement finishes
-    # before requesting new tiles. This limits repeated downloads/repaints
-    # on Safari without changing the underlying Leaflet/Folium component.
-    folium.TileLayer(
-        tiles="OpenStreetMap", name="OpenStreetMap",
-        keep_buffer=8, update_when_idle=True,
-        update_when_zooming=False, detect_retina=False,
-    ).add_to(world)
     bounds = []
     missing = 0
+    ebird_summaries = ebird_summaries or {}
     for raw in rows:
         row = normalize_record(raw)
         location = stored_trip_location(row)
@@ -64,10 +57,18 @@ def overview_map(rows):
         lat, lon = location
         latest = max(row["versions"], key=version_key)
         summary = latest["summary"]
-        popup = (f"<b>{html.escape(row['name'])}</b><br>"
-                 f"{html.escape(row['start_date'])} t/m {html.escape(row['end_date'])}<br>"
-                 f"{summary['observations']} waarnemingen · {summary['species']} soorten<br>"
-                 f"Berekend: {html.escape(calculation_label(latest.get('calculated_at')))}")
+        bird = ebird_summaries.get(row['id'])
+        def fmt(value):
+            return str(value) if value is not None else '—'
+        popup = (f"<div style='font:13px/1.5 Arial,sans-serif;min-width:260px'>"
+                 f"<b>{html.escape(row['name'])}</b><br>"
+                 f"{html.escape(row['start_date'])} t/m {html.escape(row['end_date'])}"
+                 f"<table style='width:100%;margin:9px 0;border-collapse:collapse;text-align:right'>"
+                 f"<tr><th style='text-align:left'></th><th>iNaturalist</th><th>eBird</th></tr>"
+                 f"<tr><td style='text-align:left'>Waarnemingen</td><td>{fmt(summary.get('observations'))}</td><td>{fmt(bird.get('Waarnemingen')) if bird else '—'}</td></tr>"
+                 f"<tr><td style='text-align:left'>Soorten</td><td>{fmt(summary.get('species'))}</td><td>{fmt(bird.get('Soorten')) if bird else '—'}</td></tr>"
+                 f"<tr><td style='text-align:left'>Nieuwe soorten</td><td>{fmt(summary.get('own'))}</td><td>{fmt(bird.get('Nieuw voor mij')) if bird else '—'}</td></tr>"
+                 f"</table>Berekend: {html.escape(calculation_label(latest.get('calculated_at')))}</div>")
         folium.CircleMarker([lat, lon], radius=8, color="#205e3b", weight=2,
                             fill=True, fill_color="#3c995c", fill_opacity=0.9,
                             tooltip=html.escape(row["name"]),

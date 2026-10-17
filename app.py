@@ -93,9 +93,9 @@ def cached_trip_location(search_json):
 
 
 @st.cache_data(show_spinner=False, max_entries=3)
-def cached_overview_map(map_rows_json):
+def cached_overview_map(map_rows_json, ebird_summaries_json="{}"):
     """Render a passive Leaflet map once per trip dataset; no Streamlit callbacks."""
-    world, missing = overview_map(json.loads(map_rows_json))
+    world, missing = overview_map(json.loads(map_rows_json), json.loads(ebird_summaries_json))
     return world.get_root().render(), missing, unix_time()
 
 
@@ -393,7 +393,10 @@ if st.session_state.page == "home":
     map_payload = json.dumps(user_rows, sort_keys=True, default=str)
     _map_diagnostic_payload_ms = (perf_counter() - _map_diagnostic_payload_start) * 1000
     _map_diagnostic_render_start = perf_counter()
-    map_html, missing, map_generated_at = cached_overview_map(map_payload)
+    bird_summaries = ({row['id']: ebird_index.trip(row)[0] for row in user_rows}
+                      if ebird_index is not None else {})
+    bird_payload = json.dumps(bird_summaries, sort_keys=True, default=str)
+    map_html, missing, map_generated_at = cached_overview_map(map_payload, bird_payload)
     _map_diagnostic_render_ms = (perf_counter() - _map_diagnostic_render_start) * 1000
     # Unlike st_folium, this display-only map cannot trigger Streamlit reruns
     # when Leaflet loads, pans, zooms or opens a popup.
