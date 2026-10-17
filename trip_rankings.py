@@ -53,6 +53,7 @@ def show_rankings(rows, birds, view):
         quarters = ''.join(f'<div class="quarter" style="left:{(last_year-y)*year_width+(4-q)*year_width/4}px">Q{q} {y}</div>' for y in range(last_year,first_year-1,-1) for q in range(4,0,-1))
         cards=[]
         axis_bars=[]
+        connectors=[]
         maximum=max((float(it["iNat soorten"] or 0) for _,it in dated),default=1)
         maximum=max(maximum,max((float(it["eBird soorten"] or 0) for _,it in dated),default=1),1)
         # Overlapping dates get separate vertical lanes.
@@ -60,30 +61,31 @@ def show_rankings(rows, birds, view):
         for day,item in sorted(dated,key=lambda z:z[0],reverse=True):
             fraction=(day-date(day.year,1,1)).days/(date(day.year+1,1,1)-date(day.year,1,1)).days
             x=(last_year-day.year)*year_width+(1-fraction)*year_width
-            lane=next((i for i,limit in enumerate(lanes) if x-limit>220),len(lanes))
+            lane=next((i for i,limit in enumerate(lanes) if abs(x-limit)>150),len(lanes))
             if lane==len(lanes):lanes.append(x)
             else:lanes[lane]=x
-            y=78+lane*150
+            y=65+(lane%4)*105
             nat=float(item['iNat soorten'] or 0); bird=float(item['eBird soorten'] or 0)
             # A shared scale makes the vertical bars comparable across all trips.
             axis_bars.append((x,nat,bird))
-            rows=''.join(f'<tr><td>{label}</td><td>{val(item[a])}</td><td>{val(item[b])}</td></tr>' for label,a,b in [('Waarnemingen','iNat waarnemingen','eBird waarnemingen'),('Soorten','iNat soorten','eBird soorten'),('Nieuwe soorten','iNat nieuwe soorten','eBird nieuwe soorten')])
-            cards.append(f'<div class="trip" style="left:{x}px;top:{y}px"><strong>{esc(item["Trip"])}</strong><small>{esc(item["Van"])} t/m {esc(item["Tot"])}</small><table><tr><th></th><th>iNaturalist</th><th>eBird</th></tr>{rows}</table></div>')
-        axis_y=max(450, 115+len(lanes)*150)+65
-        height=axis_y+55
+            rows=''.join(f'<tr><td>{label}</td><td>{val(item[a])}</td><td>{val(item[b])}</td></tr>' for label,a,b in [('Obs.','iNat waarnemingen','eBird waarnemingen'),('Soorten','iNat soorten','eBird soorten'),('Nieuw','iNat nieuwe soorten','eBird nieuwe soorten')])
+            connectors.append(f'<line x1="{x:.1f}" y1="{y+102:.1f}" x2="{x:.1f}" y2="{axis_y if False else 482}" stroke="#77828d" stroke-width="1" opacity=".8"/>')
+            cards.append(f'<div class="trip" style="left:{x-70:.1f}px;top:{y}px"><strong>{esc(item["Trip"])}</strong><small>{esc(item["Van"])} t/m {esc(item["Tot"])}</small><table><tr><th></th><th>iNat</th><th>eBird</th></tr>{rows}</table></div>')
+        axis_y=485
+        height=axis_y+45
         vertical_bars=[]
         for x,nat,bird in axis_bars:
             for offset,value,kind in [(-12,nat,'nat'),(2,bird,'bird')]:
                 if value > 0:
-                    bar_height=max(3, (axis_y-100)*value/maximum)
+                    bar_height=max(3, 340*value/maximum)
                     vertical_bars.append(f'<div class="axis-bar {kind}" title="{kind}: {int(value)} soorten" style="left:{x+offset:.1f}px;top:{axis_y-bar_height:.1f}px;height:{bar_height:.1f}px"></div>')
         time_axis=f'<div class="time-axis" style="top:{axis_y}px"></div>'
         legend=f'<div class="axis-legend" style="top:{axis_y+12}px"><span class="nat-key">■</span> iNaturalist soorten &nbsp; <span class="bird-key">■</span> eBird soorten · Hoogte op dezelfde schaal (maximum {int(maximum):,})</div>'
         markup=f'''<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>
-        body{{font:13px Arial,sans-serif;margin:0;color:#252525}}.scroll{{overflow-x:auto;overflow-y:auto;max-height:670px;border:1px solid #ddd;border-radius:9px}}.canvas{{position:relative;width:{width+300}px;height:{height}px;background:repeating-linear-gradient(90deg,#fff 0px,#fff 261px,#edf0f2 262px,#fff 263px)}}
-        .year{{position:absolute;top:8px;font-size:17px;font-weight:bold;border-bottom:2px solid #aaa;padding:3px 8px;box-sizing:border-box}}.quarter{{position:absolute;top:43px;color:#777}}.trip{{position:absolute;width:205px;z-index:2;box-sizing:border-box;background:white;border:1px solid #d6d9df;border-radius:8px;padding:7px;box-shadow:0 2px 5px #0002}}strong{{display:block;font-size:11px;line-height:1.15}}small{{display:block;color:#777;margin:3px 0}}.axis-bar{{position:absolute;width:12px;z-index:1;border-radius:3px 3px 0 0;opacity:.85}}.nat{{background:#3b985e}}.bird{{background:#438bbd}}.time-axis{{position:absolute;left:0;right:0;border-top:2px solid #737b85}}.axis-legend{{position:absolute;left:12px;color:#555;font-size:12px}}.nat-key{{color:#3b985e}}.bird-key{{color:#438bbd}}table{{width:100%;font-size:10px;margin-top:3px;border-collapse:collapse}}td:not(:first-child),th:not(:first-child){{text-align:right}}td{{padding:1px 0}}
-        </style></head><body><div class="scroll"><div class="canvas">{years}{quarters}{''.join(vertical_bars)}{time_axis}{legend}{''.join(cards)}</div></div></body></html>'''
-        show_html(markup,height=min(700,height+20),scrolling=False)
+        body{{font:13px Arial,sans-serif;margin:0;color:#252525}}.scroll{{overflow-x:auto;overflow-y:auto;max-height:550px;border:1px solid #ddd;border-radius:9px}}.canvas{{position:relative;width:{width+300}px;height:{height}px;background:repeating-linear-gradient(90deg,#fff 0px,#fff 261px,#edf0f2 262px,#fff 263px)}}
+        .year{{position:absolute;top:8px;font-size:17px;font-weight:bold;border-bottom:2px solid #aaa;padding:3px 8px;box-sizing:border-box}}.quarter{{position:absolute;top:43px;color:#777}}.trip{{position:absolute;width:140px;height:102px;overflow:hidden;z-index:3;box-sizing:border-box;background:white;border:1px solid #d6d9df;border-radius:8px;padding:5px;box-shadow:0 2px 5px #0002}}strong{{display:block;font-size:10px;line-height:1.12;max-height:23px;overflow:hidden}}small{{display:block;color:#777;margin:2px 0;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.axis-bar{{position:absolute;width:12px;z-index:1;border-radius:3px 3px 0 0;opacity:.85}}.nat{{background:#3b985e}}.bird{{background:#438bbd}}.time-axis{{position:absolute;left:0;right:0;border-top:2px solid #737b85}}.axis-legend{{position:absolute;left:12px;color:#555;font-size:12px}}.nat-key{{color:#3b985e}}.bird-key{{color:#438bbd}}table{{width:100%;font-size:9px;margin-top:2px;border-collapse:collapse}}td:not(:first-child),th:not(:first-child){{text-align:right}}td{{padding:1px 0}}
+        </style></head><body><div class="scroll"><div class="canvas">{years}{quarters}{''.join(vertical_bars)}{time_axis}{legend}<svg style="position:absolute;left:0;top:0;pointer-events:none;z-index:2" width="{width+300}" height="{height}">{''.join(connectors)}</svg>{''.join(cards)}</div></div></body></html>'''
+        show_html(markup,height=height+15,scrolling=False)
         return
     metrics = {
         'Top trips – soorten iNaturalist': 'iNat soorten',
