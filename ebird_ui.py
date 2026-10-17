@@ -36,24 +36,6 @@ def load_ebird_index():
         st.session_state.ebird_storage_action = {'op': 'load', 'nonce': event.get('nonce')}
         if event.get('data'):
             st.session_state.ebird_data = event['data']
-    with st.expander('eBird-export importeren of vernieuwen', expanded=not bool(st.session_state.get('ebird_data'))):
-        with st.form('ebird_import'):
-            upload = st.file_uploader('Persoonlijke eBird-export', type=['zip', 'csv'], key='ebird_export_upload')
-            submit = st.form_submit_button('eBird-export laden')
-        if submit:
-            if upload is None:
-                st.error('Kies eerst je eBird-export.')
-            else:
-                try:
-                    with st.spinner('eBird-export verwerken…'):
-                        data = read_export(upload.getvalue())
-                    nonce = str(uuid4())
-                    st.session_state.ebird_data = data
-                    st.session_state.ebird_storage_action = {'op': 'save', 'nonce': nonce, 'data': data}
-                    st.session_state.ebird_storage_nonce = None
-                    st.rerun()
-                except (ValueError, UnicodeError, OSError) as exc:
-                    st.error(str(exc))
     if st.session_state.get('ebird_storage_error'):
         st.warning('eBird kon niet in deze browser worden bewaard. De geladen export blijft beschikbaar zolang deze sessie open is. ' + st.session_state.ebird_storage_error)
     data = st.session_state.get('ebird_data')
@@ -88,3 +70,24 @@ def render_ebird_birds(selected, index):
     else:
         st.info('Geen nieuwe soorten in deze trip.')
     st.caption('Bekend aantal is de som van opgegeven aantallen, geen aantal unieke vogels. X betekent aanwezig zonder opgegeven aantal. Overlappende trips kunnen dezelfde checklists bevatten.')
+
+
+def render_ebird_import():
+    with st.expander('eBird-export importeren of vernieuwen', expanded=not bool(st.session_state.get('ebird_data'))):
+        with st.form('ebird_import'):
+            upload = st.file_uploader('Persoonlijke eBird-export', type=['zip', 'csv'], key='ebird_export_upload')
+            submit = st.form_submit_button('eBird-export laden')
+        if submit:
+            if upload is None:
+                st.error('Kies eerst je eBird-export.')
+            else:
+                try:
+                    with st.spinner('eBird-export verwerken…'):
+                        data = read_export(upload.getvalue())
+                    nonce = str(uuid4())
+                    st.session_state.ebird_data = data
+                    st.session_state.ebird_storage_action = {'op': 'save', 'nonce': nonce, 'data': data}
+                    st.session_state.ebird_storage_nonce = None
+                    st.rerun()
+                except (ValueError, UnicodeError, OSError) as exc:
+                    st.error(str(exc))

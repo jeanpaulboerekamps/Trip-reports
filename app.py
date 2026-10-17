@@ -36,7 +36,7 @@ from trip_store import make_record, summary_snapshot, matches_search, validate_i
 from trip_form_state import load_existing_trip, prepare_form_widgets, sync_form_values, reset_new_trip
 from trip_overview import overview_map, trip_table, version_table, calculation_label, sorted_trips
 from trip_locations import stored_trip_location, recover_trip_location, has_density_location, DENSITY_METHOD, GALAPAGOS_METHOD, EBIRD_METHOD
-from ebird_ui import load_ebird_index, render_ebird_birds
+from ebird_ui import load_ebird_index, render_ebird_birds, render_ebird_import
 
 st.set_page_config(page_title="Tripreport Verkenner", page_icon="🧭", layout="wide")
 st.markdown("""<style>
@@ -397,24 +397,6 @@ if st.session_state.page == "home":
     # when Leaflet loads, pans, zooms or opens a popup.
     component_html(map_html, height=430, scrolling=False)
     _map_diagnostic_total_ms = (perf_counter() - _map_diagnostic_start) * 1000
-    with st.expander("Kaartdiagnostiek (tijdelijk, versie 17)", expanded=False):
-        st.caption("Meet de Python-kant. Het laden van kaarttegels in Safari is hierin niet inbegrepen.")
-        st.code(
-            f"Schermopbouw nummer: {_map_diagnostic_run}\n"
-            f"Trips in kaartselectie: {len(user_rows)}\n"
-            f"Markers zonder locatie: {missing}\n"
-            f"Tijd tot kaartcomponent: {_map_diagnostic_total_ms:.0f} ms\n"
-            f"Kaartgegevens serialiseren: {_map_diagnostic_payload_ms:.1f} ms\n"
-            f"Kaart-HTML ophalen (incl. cache): {_map_diagnostic_render_ms:.1f} ms\n"
-            f"Kaart-HTML bytes: {len(map_html.encode('utf-8'))}\n"
-            f"Kaart-HTML gegenereerd om: {datetime.fromtimestamp(map_generated_at).strftime('%H:%M:%S')}\n"
-            f"Cacheleeftijd: {max(0, unix_time() - map_generated_at):.1f} sec\n"
-            f"Kaartgegevens SHA256: {hashlib.sha256(map_payload.encode()).hexdigest()[:12]}"
-        )
-        st.caption("Python-uitvoeringen en antwoorden van de browseropslag (nieuw in v16):")
-        st.dataframe(st.session_state.startup_trace, use_container_width=True, hide_index=True)
-        st.caption("'none' betekent dat de browseropslag nog geen antwoord heeft gegeven; 'matching' betekent dat het antwoord bij de huidige opdracht hoort. Dit meet geen Safari-kaarttegels.")
-        st.caption("Test: open de app, ververs Safari en keer terug uit Nieuwe trip. Maak screenshots van deze tabel.")
     if location_errors and not missing:
         st.warning("De drukste locatie kon nog niet worden bepaald voor: " + ", ".join(location_errors) + ". De eerdere kaartlocatie blijft zichtbaar.")
         if st.button("Kaartlocaties opnieuw ophalen"):
@@ -425,44 +407,52 @@ if st.session_state.page == "home":
         with user_col:
             st.text_input("iNaturalist-gebruikersnaam", value=st.session_state.overview_user_filter,
                           key="overview_username_v18", on_change=remember_overview_username)
-        with import_col:
-            st.caption("eBird-import staat boven de kaart; de gegevens worden ook in de kaartpop-ups gebruikt.")
-    needle = st.text_input("Zoek op tripnaam, gebied of datum", key="trip_overview_search")
-    rows = [row for row in user_rows if matches_search(row, needle)]
-    st.subheader(f"Tripoverzicht ({len(rows)})")
-    if rows:
-        sort_col, direction_col = st.columns([3, 2])
-        columns = list(trip_table(rows[:1])[0])
-        sort_by = sort_col.selectbox("Sorteren op", columns, index=columns.index("Van"), key="trip_sort_column")
-        direction = direction_col.radio("Volgorde", ["Aflopend", "Oplopend"], horizontal=True, key="trip_sort_direction")
-        rows = sorted_trips(rows, sort_by, descending=direction == "Aflopend")
-        table_key = "trip_selection_" + hashlib.sha256(json.dumps([row["id"] for row in rows]).encode()).hexdigest()[:16]
-        selected_id = overview_selection(rows, table_key, ebird_index)
-        if selected_id:
-            st.session_state.overview_selected_trip_id = selected_id
-        row = next((item for item in rows
-                    if item["id"] == (selected_id or st.session_state.get("overview_selected_trip_id"))), None)
-        if row is not None:
-            st.subheader(row["name"])
-            with st.form("rename_trip_" + row["id"]):
-                st.text_input("Tripnaam wijzigen", value=row["name"], max_chars=120,
-                              key="rename_input_" + row["id"])
-                st.form_submit_button("Naam opslaan", on_click=submit_trip_rename, args=(row["id"],))
-            recalculate_col, delete_col = st.columns(2)
-            recalculate_col.button("Opnieuw berekenen", key="recalculate_" + row["id"],
-                                   type="primary", on_click=open_trip, args=(row,))
-            if delete_col.button("Trip verwijderen", key="delete_" + row["id"],
-                                 help="Verwijdert deze trip met alle bewaarde versies uit deze browser."):
-                st.session_state.storage_action = {"op": "delete", "nonce": str(uuid4()), "trip_id": row["id"]}
-                st.rerun()
-            st.caption("Opnieuw berekenen laadt de instellingen. Klik daarna op Tripreport maken en bewaar de berekende versie.")
-            with st.expander("Versies bekijken"):
-                st.dataframe(pd.DataFrame(version_table(row)), hide_index=True, use_container_width=True)
-            render_ebird_birds(row, ebird_index)
+
+    view = st.selectbox("Kies overzicht", [
+        "Trip-overzicht", "Trips in de tijd", "Top trips – soorten iNaturalist",
+        "Top trips – soorten eBird", "Top trips – nieuwe soorten iNaturalist",
+        "Top trips – nieuwe soorten eBird", "Top trips – onbekend tot soort iNaturalist"
+    ], key="trip_overview_mode")
+    if view == "Trip-overzicht":
+        needle = st.text_input("Zoek op tripnaam, gebied of datum", key="trip_overview_search")
+        rows = [row for row in user_rows if matches_search(row, needle)]
+        st.subheader(f"Tripoverzicht ({len(rows)})")
+        if rows:
+            sort_col, direction_col = st.columns([3, 2])
+            columns = list(trip_table(rows[:1])[0])
+            sort_by = sort_col.selectbox("Sorteren op", columns, index=columns.index("Van"), key="trip_sort_column")
+            direction = direction_col.radio("Volgorde", ["Aflopend", "Oplopend"], horizontal=True, key="trip_sort_direction")
+            rows = sorted_trips(rows, sort_by, descending=direction == "Aflopend")
+            table_key = "trip_selection_" + hashlib.sha256(json.dumps([row["id"] for row in rows]).encode()).hexdigest()[:16]
+            selected_id = overview_selection(rows, table_key, ebird_index)
+            if selected_id:
+                st.session_state.overview_selected_trip_id = selected_id
+            row = next((item for item in rows
+                        if item["id"] == (selected_id or st.session_state.get("overview_selected_trip_id"))), None)
+            if row is not None:
+                st.subheader(row["name"])
+                with st.form("rename_trip_" + row["id"]):
+                    st.text_input("Tripnaam wijzigen", value=row["name"], max_chars=120,
+                                  key="rename_input_" + row["id"])
+                    st.form_submit_button("Naam opslaan", on_click=submit_trip_rename, args=(row["id"],))
+                recalculate_col, delete_col = st.columns(2)
+                recalculate_col.button("Opnieuw berekenen", key="recalculate_" + row["id"],
+                                       type="primary", on_click=open_trip, args=(row,))
+                if delete_col.button("Trip verwijderen", key="delete_" + row["id"],
+                                     help="Verwijdert deze trip met alle bewaarde versies uit deze browser."):
+                    st.session_state.storage_action = {"op": "delete", "nonce": str(uuid4()), "trip_id": row["id"]}
+                    st.rerun()
+                st.caption("Opnieuw berekenen laadt de instellingen. Klik daarna op Tripreport maken en bewaar de berekende versie.")
+                with st.expander("Versies bekijken"):
+                    st.dataframe(pd.DataFrame(version_table(row)), hide_index=True, use_container_width=True)
+                render_ebird_birds(row, ebird_index)
+            else:
+                st.caption("Kies een rij in de tabel om de trip opnieuw te berekenen, te verwijderen of de versies te bekijken.")
         else:
-            st.caption("Kies een rij in de tabel om de trip opnieuw te berekenen, te verwijderen of de versies te bekijken.")
+            st.info("Geen bewaarde trips voor deze selectie. Maak een nieuwe trip of importeer je reservekopie.")
     else:
-        st.info("Geen bewaarde trips voor deze selectie. Maak een nieuwe trip of importeer je reservekopie.")
+        from trip_rankings import show_rankings
+        show_rankings(user_rows, bird_summaries, view)
     previous_token = st.session_state.get("report_job") or st.session_state.previous_report_token
     if previous_token:
         if st.button("Verdergaan met vorige berekening"):
@@ -470,6 +460,7 @@ if st.session_state.page == "home":
             st.session_state.page = "report"
             st.query_params["report"] = previous_token
             st.rerun()
+    render_ebird_import()
     with st.expander("Reservekopie downloaden of importeren"):
         st.caption("De reservekopie bevat alle gebruikers, trips en bewaarde versies in deze browser.")
         st.download_button("Reservekopie downloaden", json.dumps(st.session_state.saved_rows, ensure_ascii=False, indent=2).encode("utf-8"),
